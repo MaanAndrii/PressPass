@@ -23,7 +23,13 @@ set -euo pipefail
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXISTING_INSTALL=0
 [[ -f "$APP_DIR/.env" ]] && EXISTING_INSTALL=1
-env_value() { sed -n "s/^$1=//p" "$APP_DIR/.env" 2>/dev/null | tail -n1; }
+# Значення з наявного .env (для оновлення). На свіжому встановленні файл ще не
+# існує: тоді повертаємо порожнє й код 0, інакше sed на відсутньому файлі під
+# `set -euo pipefail` мовчки обриває скрипт ще на етапі запитань.
+env_value() {
+  [[ -f "$APP_DIR/.env" ]] || return 0
+  sed -n "s/^$1=//p" "$APP_DIR/.env" | tail -n1
+}
 ASSUME_YES=0
 [[ "${1:-}" == "--yes" || "${1:-}" == "-y" ]] && ASSUME_YES=1
 
