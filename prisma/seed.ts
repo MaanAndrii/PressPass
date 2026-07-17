@@ -49,6 +49,11 @@ async function main(): Promise<void> {
       where: { id: admin.id },
       data: {
         ...material,
+        // Re-derive the login hash from the SAME password used to wrap the data
+        // key. Otherwise a row created in one run (hash from password A) but
+        // provisioned in a later run (data key from password B) would keep a
+        // stale hash and reject the credentials the installer printed.
+        passwordHash: await argon2.hash(adminPassword),
         email: emailIndex,
         emailBlindIndex: emailIndex,
         role: Role.ADMIN,
