@@ -1,0 +1,1966 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/admin/settings": {
+      "get": {
+        "operationId": "SettingsController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Runtime settings (Resend key masked)",
+        "tags": [
+          "admin/settings"
+        ]
+      },
+      "put": {
+        "operationId": "SettingsController_update",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update runtime settings (Resend API key, sender)",
+        "tags": [
+          "admin/settings"
+        ]
+      }
+    },
+    "/admin/settings/nszhu-logo": {
+      "post": {
+        "operationId": "SettingsController_uploadNszhuLogo",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "logo": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                },
+                "required": [
+                  "logo"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload the NSZHU logo (SVG/PNG/WebP/JPEG, ≤2 MB)",
+        "tags": [
+          "admin/settings"
+        ]
+      },
+      "delete": {
+        "operationId": "SettingsController_removeNszhuLogo",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove the uploaded NSZHU logo",
+        "tags": [
+          "admin/settings"
+        ]
+      }
+    },
+    "/auth/config": {
+      "get": {
+        "operationId": "AuthController_getConfig",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Which optional sign-in methods are enabled",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "operationId": "AuthController_login",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Sign in with email and password, returns a JWT access token",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "operationId": "AuthController_register",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Self-registration: sends a confirmation code to the email",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/verify-email": {
+      "post": {
+        "operationId": "AuthController_verifyEmail",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyEmailDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Confirm the emailed code; activates the account and signs in",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/resend-code": {
+      "post": {
+        "operationId": "AuthController_resendCode",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendCodeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Send a fresh confirmation code",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/google": {
+      "get": {
+        "operationId": "AuthController_googleStart",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Start the \"Sign in with Google\" flow (browser redirect)",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "description": "JWT authentication is stateless: the client discards its token. The endpoint exists for API symmetry and future token revocation (v2).",
+        "operationId": "AuthController_logout",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Sign out (stateless)",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/me": {
+      "get": {
+        "operationId": "MeController_getMe",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Profile of the authenticated user",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/profile": {
+      "put": {
+        "operationId": "MeController_updateProfile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fill in / update the questionnaire (all fields required)",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/profile/photo": {
+      "post": {
+        "operationId": "MeController_uploadOwnPhoto",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "photo": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                },
+                "required": [
+                  "photo"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload own photo (JPEG/PNG/WebP, ≤5 MB)",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/card": {
+      "get": {
+        "operationId": "MeController_getCard",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Authenticated journalist's current (primary) card",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/me/password": {
+      "put": {
+        "operationId": "MeController_changePassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Change your own password",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/cards": {
+      "get": {
+        "operationId": "MeController_getCards",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "All cards the journalist holds (primary first)",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/card/primary": {
+      "put": {
+        "operationId": "MeController_setPrimary",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPrimaryCardDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Choose which card is primary",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/card/qr": {
+      "get": {
+        "description": "The client refreshes this every ~30 s; old QR codes stop verifying.",
+        "operationId": "MeController_getCardQr",
+        "parameters": [
+          {
+            "name": "cardId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fresh dynamic QR payload (short-lived signed verify URL)",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/verify/{uuid}": {
+      "get": {
+        "description": "Card data is returned only when the short-lived signed token `t` is valid. An expired or missing token yields valid:false without any personal data.",
+        "operationId": "VerifyController_verify",
+        "parameters": [
+          {
+            "name": "uuid",
+            "required": true,
+            "in": "path",
+            "description": "Card UUID (UUIDv7)",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "t",
+            "required": false,
+            "in": "query",
+            "description": "Signed short-lived QR token",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Public verification of a card (URL from the dynamic QR code)",
+        "tags": [
+          "verify"
+        ]
+      }
+    },
+    "/admin/journalists": {
+      "get": {
+        "operationId": "JournalistsController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List journalists (editorial admin: only their members)",
+        "tags": [
+          "admin/journalists"
+        ]
+      },
+      "post": {
+        "operationId": "JournalistsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJournalistDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a journalist together with a login account",
+        "tags": [
+          "admin/journalists"
+        ]
+      }
+    },
+    "/admin/journalists/attach": {
+      "post": {
+        "operationId": "JournalistsController_attach",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachJournalistDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add an existing journalist to a media by their public id",
+        "tags": [
+          "admin/journalists"
+        ]
+      }
+    },
+    "/admin/journalists/{id}": {
+      "put": {
+        "operationId": "JournalistsController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateJournalistDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update journalist profile and/or credentials",
+        "tags": [
+          "admin/journalists"
+        ]
+      },
+      "delete": {
+        "operationId": "JournalistsController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a journalist, their account and cards (system admin only)",
+        "tags": [
+          "admin/journalists"
+        ]
+      }
+    },
+    "/admin/journalists/{id}/membership": {
+      "delete": {
+        "operationId": "JournalistsController_detach",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove a journalist from the editorial admin's media",
+        "tags": [
+          "admin/journalists"
+        ]
+      }
+    },
+    "/admin/journalists/{id}/photo": {
+      "post": {
+        "operationId": "JournalistsController_uploadPhoto",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "photo": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                },
+                "required": [
+                  "photo"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload a journalist photo (JPEG/PNG/WebP, ≤5 MB)",
+        "tags": [
+          "admin/journalists"
+        ]
+      }
+    },
+    "/admin/cards": {
+      "get": {
+        "operationId": "CardsController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List cards (editorial admins: their own editorial only)",
+        "tags": [
+          "admin/cards"
+        ]
+      },
+      "post": {
+        "operationId": "CardsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCardDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Issue a new card (UUIDv7 is generated server-side)",
+        "tags": [
+          "admin/cards"
+        ]
+      }
+    },
+    "/admin/cards/{id}/qr": {
+      "get": {
+        "operationId": "CardsController_getQr",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fresh dynamic verification URL for a card (short-lived token)",
+        "tags": [
+          "admin/cards"
+        ]
+      }
+    },
+    "/admin/cards/{id}": {
+      "put": {
+        "operationId": "CardsController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCardDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update card fields",
+        "tags": [
+          "admin/cards"
+        ]
+      },
+      "delete": {
+        "operationId": "CardsController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete an issued card (editorial admins: their own only)",
+        "tags": [
+          "admin/cards"
+        ]
+      }
+    },
+    "/admin/cards/block": {
+      "post": {
+        "operationId": "CardsController_block",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlockCardDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Block (revoke) a card",
+        "tags": [
+          "admin/cards"
+        ]
+      }
+    },
+    "/admin/cards/renew": {
+      "post": {
+        "operationId": "CardsController_renew",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenewCardDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Renew a card: extend expiration and reactivate",
+        "tags": [
+          "admin/cards"
+        ]
+      }
+    },
+    "/card-template": {
+      "get": {
+        "operationId": "CardTemplateController_get",
+        "parameters": [
+          {
+            "name": "editorialId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Active card design for an editorial (branding only, public)",
+        "tags": [
+          "card-template"
+        ]
+      }
+    },
+    "/branding": {
+      "get": {
+        "operationId": "CardTemplateController_branding",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Public branding assets needed to render a card (NSZHU logo)",
+        "tags": [
+          "card-template"
+        ]
+      }
+    },
+    "/admin/card-template": {
+      "put": {
+        "operationId": "CardTemplateController_update",
+        "parameters": [
+          {
+            "name": "editorialId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a card design (own editorial, or system default for ADMIN)",
+        "tags": [
+          "card-template"
+        ]
+      }
+    },
+    "/admin/card-template/reset": {
+      "post": {
+        "operationId": "CardTemplateController_reset",
+        "parameters": [
+          {
+            "name": "editorialId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reset a card design (own editorial, or system default for ADMIN)",
+        "tags": [
+          "card-template"
+        ]
+      }
+    },
+    "/admin/editorials": {
+      "get": {
+        "operationId": "EditorialsController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List issuing companies (editorial admins: their own only)",
+        "tags": [
+          "admin/editorials"
+        ]
+      },
+      "post": {
+        "operationId": "EditorialsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEditorialDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create an issuing company (system admin only)",
+        "tags": [
+          "admin/editorials"
+        ]
+      }
+    },
+    "/admin/editorials/{id}": {
+      "put": {
+        "operationId": "EditorialsController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEditorialDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update an issuing company (editorial admins: their own only)",
+        "tags": [
+          "admin/editorials"
+        ]
+      },
+      "delete": {
+        "operationId": "EditorialsController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete an issuing company (system admin only)",
+        "tags": [
+          "admin/editorials"
+        ]
+      }
+    },
+    "/admin/editorials/{id}/logo": {
+      "post": {
+        "operationId": "EditorialsController_uploadLogo",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "logo": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                },
+                "required": [
+                  "logo"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload the company logo (SVG/PNG/WebP/JPEG, ≤2 MB)",
+        "tags": [
+          "admin/editorials"
+        ]
+      }
+    },
+    "/admin/admins": {
+      "get": {
+        "operationId": "AdminsController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List administrator accounts (system + editorial)",
+        "tags": [
+          "admin/admins"
+        ]
+      },
+      "post": {
+        "operationId": "AdminsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAdminDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create an editorial-bound administrator",
+        "tags": [
+          "admin/admins"
+        ]
+      }
+    },
+    "/admin/admins/{id}": {
+      "delete": {
+        "operationId": "AdminsController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete an editorial-bound administrator",
+        "tags": [
+          "admin/admins"
+        ]
+      }
+    },
+    "/admin/positions": {
+      "get": {
+        "operationId": "PositionsController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List positions (for the issuance dropdown)",
+        "tags": [
+          "admin/positions"
+        ]
+      },
+      "post": {
+        "operationId": "PositionsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePositionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a position (system admin only)",
+        "tags": [
+          "admin/positions"
+        ]
+      }
+    },
+    "/admin/positions/{id}": {
+      "put": {
+        "operationId": "PositionsController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePositionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a position (system admin only)",
+        "tags": [
+          "admin/positions"
+        ]
+      },
+      "delete": {
+        "operationId": "PositionsController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a position (system admin only)",
+        "tags": [
+          "admin/positions"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "PressPass API",
+    "description": "REST API for issuing, administration and verification of electronic press credentials.",
+    "version": "1.0",
+    "contact": {}
+  },
+  "tags": [
+    {
+      "name": "auth",
+      "description": "Authentication"
+    },
+    {
+      "name": "me",
+      "description": "Journalist self-service"
+    },
+    {
+      "name": "verify",
+      "description": "Public card verification"
+    },
+    {
+      "name": "admin/journalists",
+      "description": "Journalist administration"
+    },
+    {
+      "name": "admin/cards",
+      "description": "Card administration"
+    }
+  ],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "UpdateSettingsDto": {
+        "type": "object",
+        "properties": {
+          "resendApiKey": {
+            "type": "string",
+            "example": "re_xxxxxxxx",
+            "description": "Resend API key; порожній рядок очищає (повертає до env)"
+          },
+          "mailFrom": {
+            "type": "string",
+            "example": "PressPass <no-reply@domain.ua>"
+          }
+        }
+      },
+      "LoginDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "admin@presspass.local"
+          },
+          "password": {
+            "type": "string",
+            "example": "ChangeMe_Admin1!",
+            "minLength": 8
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "RegisterDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "me@example.com"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "VerifyEmailDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "me@example.com"
+          },
+          "code": {
+            "type": "string",
+            "example": "123456",
+            "description": "6-значний код із листа"
+          }
+        },
+        "required": [
+          "email",
+          "code"
+        ]
+      },
+      "ResendCodeDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "me@example.com"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "UpdateProfileDto": {
+        "type": "object",
+        "properties": {
+          "fullName": {
+            "type": "string",
+            "example": "Петренко Іван Васильович",
+            "description": "ПІП"
+          },
+          "fullNameEn": {
+            "type": "string",
+            "example": "Ivan Petrenko",
+            "description": "ПІП латиницею (для картки)"
+          },
+          "birthDate": {
+            "type": "string",
+            "example": "1990-05-15",
+            "description": "Дата народження"
+          },
+          "passportData": {
+            "type": "string",
+            "example": "КВ 123456, виданий Шевченківським РВ 01.01.2010"
+          },
+          "taxNumber": {
+            "type": "string",
+            "example": "1234567890",
+            "description": "ІПН — 10 цифр"
+          },
+          "phone": {
+            "type": "string",
+            "example": "+380501234567"
+          }
+        },
+        "required": [
+          "fullName",
+          "birthDate",
+          "passportData",
+          "taxNumber",
+          "phone"
+        ]
+      },
+      "ChangePasswordDto": {
+        "type": "object",
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "description": "Поточний пароль"
+          },
+          "newPassword": {
+            "type": "string",
+            "minLength": 8,
+            "description": "Новий пароль"
+          }
+        },
+        "required": [
+          "currentPassword",
+          "newPassword"
+        ]
+      },
+      "SetPrimaryCardDto": {
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "number",
+            "example": 1,
+            "description": "Id of the card to make primary"
+          }
+        },
+        "required": [
+          "cardId"
+        ]
+      },
+      "CreateJournalistDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "journalist@example.com",
+            "description": "Login email for the journalist"
+          },
+          "password": {
+            "type": "string",
+            "example": "Str0ng_Password!",
+            "minLength": 8,
+            "description": "Initial password"
+          },
+          "fullName": {
+            "type": "string",
+            "example": "Іван Петренко"
+          },
+          "fullNameEn": {
+            "type": "string",
+            "example": "Ivan Petrenko",
+            "description": "ПІП латиницею (для картки)"
+          },
+          "birthDate": {
+            "type": "string",
+            "example": "1990-05-15",
+            "description": "Дата народження"
+          },
+          "passportData": {
+            "type": "string",
+            "example": "КВ 123456, виданий …"
+          },
+          "taxNumber": {
+            "type": "string",
+            "example": "1234567890",
+            "description": "ІПН — 10 цифр"
+          },
+          "phone": {
+            "type": "string",
+            "example": "+380501234567"
+          },
+          "nszhuMember": {
+            "type": "boolean",
+            "example": false,
+            "description": "Член НСЖУ"
+          }
+        },
+        "required": [
+          "email",
+          "password",
+          "fullName"
+        ]
+      },
+      "AttachJournalistDto": {
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "example": "JR-7K3F9Q",
+            "description": "Публічний ID журналіста"
+          },
+          "editorialId": {
+            "type": "number",
+            "example": 1,
+            "description": "Редакція (обовʼязкова для системного адміністратора)"
+          }
+        },
+        "required": [
+          "publicId"
+        ]
+      },
+      "UpdateJournalistDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "journalist@example.com"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "description": "New password (resets the current one)"
+          },
+          "fullName": {
+            "type": "string",
+            "example": "Іван Петренко"
+          },
+          "fullNameEn": {
+            "type": "string",
+            "example": "Ivan Petrenko",
+            "description": "ПІП латиницею (для картки)"
+          },
+          "birthDate": {
+            "type": "string",
+            "example": "1990-05-15"
+          },
+          "passportData": {
+            "type": "string",
+            "example": "КВ 123456, виданий …"
+          },
+          "taxNumber": {
+            "type": "string",
+            "example": "1234567890"
+          },
+          "phone": {
+            "type": "string",
+            "example": "+380501234567"
+          },
+          "nszhuMember": {
+            "type": "boolean",
+            "example": false,
+            "description": "Член НСЖУ"
+          }
+        }
+      },
+      "CreateCardDto": {
+        "type": "object",
+        "properties": {
+          "journalistId": {
+            "type": "number",
+            "example": 1,
+            "description": "Journalist id the card is issued to"
+          },
+          "editorialId": {
+            "type": "number",
+            "example": 1,
+            "description": "Issuing company (редакція) id; forced to their own for an editorial admin"
+          },
+          "position": {
+            "type": "string",
+            "example": "Кореспондент",
+            "description": "Position set by the editorial"
+          },
+          "positionEn": {
+            "type": "string",
+            "example": "Correspondent",
+            "description": "Position (English)"
+          },
+          "cardNumber": {
+            "type": "string",
+            "example": "PP-2026-000123",
+            "description": "Card number; generated automatically when omitted"
+          },
+          "issueDate": {
+            "type": "string",
+            "example": "2026-07-09",
+            "description": "Defaults to today"
+          },
+          "expireDate": {
+            "type": "string",
+            "example": "2027-07-09"
+          }
+        },
+        "required": [
+          "journalistId",
+          "expireDate"
+        ]
+      },
+      "UpdateCardDto": {
+        "type": "object",
+        "properties": {
+          "cardNumber": {
+            "type": "string",
+            "example": "PP-2026-000123"
+          },
+          "issueDate": {
+            "type": "string",
+            "example": "2026-07-09"
+          },
+          "expireDate": {
+            "type": "string",
+            "example": "2027-07-09"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "BLOCKED",
+              "EXPIRED"
+            ]
+          }
+        }
+      },
+      "BlockCardDto": {
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "number",
+            "example": 1,
+            "description": "Card id to block (revoke)"
+          }
+        },
+        "required": [
+          "cardId"
+        ]
+      },
+      "RenewCardDto": {
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "number",
+            "example": 1,
+            "description": "Card id to renew"
+          },
+          "expireDate": {
+            "type": "string",
+            "example": "2028-07-09",
+            "description": "New expiration date"
+          }
+        },
+        "required": [
+          "cardId",
+          "expireDate"
+        ]
+      },
+      "CreateEditorialDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "ТОВ «Приклад Медіа»",
+            "description": "Повна юридична назва"
+          },
+          "displayNameUk": {
+            "type": "string",
+            "example": "Онлайн-медіа «Приклад»",
+            "description": "Назва для відображення в посвідченні (укр.)"
+          },
+          "displayNameEn": {
+            "type": "string",
+            "example": "«Pryklad» Media",
+            "description": "Назва для відображення в посвідченні (англ.)"
+          },
+          "mediaId": {
+            "type": "string",
+            "example": "R40-02551",
+            "description": "Ідентифікатор медіа (маска ***-*****)"
+          },
+          "edrpou": {
+            "type": "string",
+            "example": "12345678",
+            "description": "Код ЄДРПОУ (8–10 цифр)"
+          },
+          "website": {
+            "type": "string",
+            "example": "https://pryklad.media/registry"
+          },
+          "director": {
+            "type": "string",
+            "example": "Іваненко Іван Іванович"
+          },
+          "email": {
+            "type": "string",
+            "example": "office@pryklad.media"
+          },
+          "address": {
+            "type": "string",
+            "example": "м. Київ, вул. Хрещатик, 1"
+          },
+          "phone": {
+            "type": "string",
+            "example": "+380441234567"
+          },
+          "cardNumberPrefix": {
+            "type": "string",
+            "example": "KV",
+            "description": "Префікс нумерації посвідчень (унікальний серед редакцій)"
+          },
+          "cardNumberTemplate": {
+            "type": "string",
+            "example": "{prefix}-{year}-{seq:6}",
+            "description": "Шаблон номера з токенів {prefix} {year} {YY} {seq} {seq:N} {mediaId}"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "UpdateEditorialDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "ТОВ «Приклад Медіа»",
+            "description": "Повна юридична назва"
+          },
+          "displayNameUk": {
+            "type": "string",
+            "example": "Онлайн-медіа «Приклад»",
+            "description": "Назва для відображення в посвідченні (укр.)"
+          },
+          "displayNameEn": {
+            "type": "string",
+            "example": "«Pryklad» Media",
+            "description": "Назва для відображення в посвідченні (англ.)"
+          },
+          "mediaId": {
+            "type": "string",
+            "example": "R40-02551",
+            "description": "Ідентифікатор медіа (маска ***-*****)"
+          },
+          "edrpou": {
+            "type": "string",
+            "example": "12345678",
+            "description": "Код ЄДРПОУ (8–10 цифр)"
+          },
+          "website": {
+            "type": "string",
+            "example": "https://pryklad.media/registry"
+          },
+          "director": {
+            "type": "string",
+            "example": "Іваненко Іван Іванович"
+          },
+          "email": {
+            "type": "string",
+            "example": "office@pryklad.media"
+          },
+          "address": {
+            "type": "string",
+            "example": "м. Київ, вул. Хрещатик, 1"
+          },
+          "phone": {
+            "type": "string",
+            "example": "+380441234567"
+          },
+          "cardNumberPrefix": {
+            "type": "string",
+            "example": "KV",
+            "description": "Префікс нумерації посвідчень (унікальний серед редакцій)"
+          },
+          "cardNumberTemplate": {
+            "type": "string",
+            "example": "{prefix}-{year}-{seq:6}",
+            "description": "Шаблон номера з токенів {prefix} {year} {YY} {seq} {seq:N} {mediaId}"
+          }
+        }
+      },
+      "CreateAdminDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "editor@pryklad.media"
+          },
+          "password": {
+            "type": "string",
+            "example": "Str0ng_Password!",
+            "minLength": 8
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "ADMIN",
+              "EDITORIAL_ADMIN"
+            ],
+            "default": "EDITORIAL_ADMIN"
+          },
+          "editorialId": {
+            "type": "number",
+            "example": 1,
+            "description": "Required for EDITORIAL_ADMIN"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "CreatePositionDto": {
+        "type": "object",
+        "properties": {
+          "nameUk": {
+            "type": "string",
+            "example": "Кореспондент"
+          },
+          "nameEn": {
+            "type": "string",
+            "example": "Correspondent"
+          }
+        },
+        "required": [
+          "nameUk"
+        ]
+      }
+    }
+  }
+}
