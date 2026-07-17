@@ -77,11 +77,18 @@ function LoginForm() {
           PressPass
         </Link>
         <p className="mb-6 text-center text-sm text-slate-500">Електронне посвідчення журналіста</p>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {/*
+          Autofill is intentionally suppressed: the browser was re-applying a
+          saved credential pair (and swapping the one the user picked) whenever
+          the async /auth/config fetch re-rendered the form. `autoComplete="off"`
+          on the form/email plus `new-password` on the password field is the
+          reliable cross-browser way to stop saved-login autofill in Chrome.
+        */}
+        <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
           <Field
             label="Email"
             type="email"
-            autoComplete="email"
+            autoComplete="off"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -89,7 +96,7 @@ function LoginForm() {
           <Field
             label="Пароль"
             type="password"
-            autoComplete="current-password"
+            autoComplete="new-password"
             required
             minLength={8}
             value={password}
