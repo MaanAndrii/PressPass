@@ -1,0 +1,10 @@
+node_modules
+dist
+build
+.next
+coverage
+uploads
+docs/openapi.json
+package-lock.json
+*.png
+*.ico

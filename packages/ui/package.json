@@ -1,0 +1,20 @@
+{
+  "name": "@presspass/ui",
+  "version": "1.0.1",
+  "private": true,
+  "description": "Shared React UI components (buttons, badges, form fields)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "react": "^19.1.0",
+    "typescript": "^5.8.3"
+  }
+}
