@@ -1,7 +1,7 @@
 import { chmod, readFile, rm, writeFile } from 'fs/promises';
 import { randomBytes } from 'crypto';
 import { ConfigService } from '@nestjs/config';
-import { PrismaClient, type Prisma } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { BlindIndexService } from '../apps/api/src/crypto/blind-index.service';
 import { DataEncryptionService } from '../apps/api/src/crypto/data-encryption.service';
 import { ProtectedDataService } from '../apps/api/src/crypto/protected-data.service';
@@ -169,7 +169,10 @@ async function main(): Promise<void> {
       await recovery('user', String(user.id), key, admin.id);
       await prisma.user.update({
         where: { id: user.id },
-        data: { recoveryKeyEnvelope: { set: null } },
+        // A nullable Prisma JSON field distinguishes SQL NULL (`DbNull`) from
+        // the JSON value `null`. The verifier intentionally requires SQL NULL
+        // so no legacy recovery envelope remains in this column.
+        data: { recoveryKeyEnvelope: Prisma.DbNull },
       });
     }
   }
