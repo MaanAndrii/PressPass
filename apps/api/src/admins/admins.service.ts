@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { AdminAccount } from '@presspass/shared';
+import type { Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
 
 import { UserKeyMaterialService } from '../crypto/user-key-material.service';
@@ -33,21 +34,59 @@ export class AdminsService {
     private readonly sessions: UnlockSessionService,
   ) {}
 
-  async findAll(): Promise<AdminAccount[]> {
+  async findAll(actor?: JwtPayload, unlock?: string): Promise<AdminAccount[]> {
     const admins = await this.prisma.user.findMany({
       where: { role: { in: [...ADMIN_ROLES] } },
       orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
       include: { editorial: { select: { name: true } } },
     });
-    return admins.map((a) => ({
-      id: a.id,
-      email: a.email,
-      emailVerified: Boolean(a.emailVerifiedAt),
-      role: a.role,
-      editorialId: a.editorialId,
-      editorialName: a.editorial?.name ?? null,
-      createdAt: a.createdAt.toISOString(),
-    }));
+    // A Superadmin holds the System KEK, so their session can decrypt every
+    // admin's email via the system read key. Without it, the hashed column stays.
+    let systemKey: Buffer | undefined;
+    if (actor?.role === 'ADMIN' && unlock) {
+      try {
+        systemKey = this.sessions.key(unlock, actor.sub, 'system');
+      } catch {
+        systemKey = undefined;
+      }
+    }
+    try {
+      return await Promise.all(
+        admins.map(async (a) => {
+          let email = a.email;
+          if (systemKey && a.encryptedData && a.systemKeyEnvelope) {
+            try {
+              const profile = await this.hierarchy.unsealProfileForSystem(
+                a.systemKeyEnvelope,
+                systemKey,
+              );
+              try {
+                email = this.userKeys.decryptUserData<{ email: string }>(
+                  a.id,
+                  a.encryptedData,
+                  profile,
+                ).email;
+              } finally {
+                profile.fill(0);
+              }
+            } catch {
+              // Not yet sealed for the system key — keep the hashed value.
+            }
+          }
+          return {
+            id: a.id,
+            email,
+            emailVerified: Boolean(a.emailVerifiedAt),
+            role: a.role,
+            editorialId: a.editorialId,
+            editorialName: a.editorial?.name ?? null,
+            createdAt: a.createdAt.toISOString(),
+          };
+        }),
+      );
+    } finally {
+      systemKey?.fill(0);
+    }
   }
 
   /** Creates a system (ADMIN) or editorial-bound (EDITORIAL_ADMIN) administrator. */
@@ -90,15 +129,24 @@ export class AdminsService {
           editorialId: role === 'EDITORIAL_ADMIN' ? dto.editorialId : null,
         },
       });
+      let systemSeal: Prisma.InputJsonValue | undefined;
       const keyMaterial = await this.userKeys.provision(
         created.id,
         dto.password,
         { email },
-        (key) => this.hierarchy.wrapOwnerForRecovery('user', String(created.id), key, tx),
+        async (key) => {
+          await this.hierarchy.wrapOwnerForRecovery('user', String(created.id), key, tx);
+          const publicKey = await this.hierarchy.getSystemReadPublicKey();
+          if (publicKey) systemSeal = this.hierarchy.sealProfileForSystem(key, publicKey);
+        },
       );
       return tx.user.update({
         where: { id: created.id },
-        data: { ...keyMaterial, email: this.blindIndexes.email(email) },
+        data: {
+          ...keyMaterial,
+          email: this.blindIndexes.email(email),
+          ...(systemSeal ? { systemKeyEnvelope: systemSeal } : {}),
+        },
       });
     });
     const newAdminKey = await this.hierarchy.enrollAdmin(admin.id, dto.encryptionPassphrase);

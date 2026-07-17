@@ -17,8 +17,11 @@ export class AdminsController {
 
   @Get()
   @ApiOperation({ summary: 'List administrator accounts (system + editorial)' })
-  findAll(): Promise<AdminAccount[]> {
-    return this.admins.findAll();
+  findAll(
+    @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
+  ): Promise<AdminAccount[]> {
+    return this.admins.findAll(user, unlock);
   }
 
   @Post()

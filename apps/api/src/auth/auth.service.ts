@@ -8,6 +8,7 @@ import { UserKeyMaterialService } from '../crypto/user-key-material.service';
 import { UnlockSessionService } from '../crypto/unlock-session.service';
 import { BlindIndexService } from '../crypto/blind-index.service';
 import { DomainPayloadService } from '../crypto/domain-payload.service';
+import { KeyHierarchyService } from '../crypto/key-hierarchy.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { JwtPayload } from './auth.types';
 
@@ -20,6 +21,7 @@ export class AuthService {
     private readonly unlockSessions: UnlockSessionService,
     private readonly blindIndexes: BlindIndexService,
     private readonly payloads: DomainPayloadService,
+    private readonly hierarchy: KeyHierarchyService,
   ) {}
 
   /**
@@ -71,6 +73,19 @@ export class AuthService {
       }
     } else if (hasPasswordKdf || hasDataKeyEnvelope) {
       throw new UnauthorizedException('Invalid email or password');
+    }
+
+    // Lazily seal the profile key for Superadmin universal read, once the system
+    // read key exists — backfills accounts created before this feature.
+    if (unlockedDataKey && user.systemKeyEnvelope == null) {
+      const publicKey = await this.hierarchy.getSystemReadPublicKey();
+      if (publicKey)
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: {
+            systemKeyEnvelope: this.hierarchy.sealProfileForSystem(unlockedDataKey, publicKey),
+          },
+        });
     }
 
     if (!user.emailVerifiedAt) {

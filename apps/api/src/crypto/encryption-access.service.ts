@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { Role } from '@presspass/shared';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { KeyHierarchyService } from './key-hierarchy.service';
 import { UnlockSessionService } from './unlock-session.service';
@@ -51,6 +52,10 @@ export class EncryptionAccessService {
     const keys = await this.hierarchy.unlockEditorials(userId, admin);
     keys.set('admin', admin);
     if (existingProfile) keys.set('profile', existingProfile);
+    // A Superadmin holds the System KEK: make sure the system read key exists so
+    // every profile can be sealed for universal read access (backfills upgrades).
+    const systemKey = keys.get('system');
+    if (systemKey) await this.hierarchy.ensureSystemReadKey(systemKey);
     try {
       const result = this.sessions.create(userId, keys);
       return { unlockToken: result.token, expiresAt: result.expiresAt };
@@ -74,15 +79,19 @@ export class EncryptionAccessService {
       if (!verifiedEmail)
         throw new BadRequestException('Verified email is required for encryption enrollment');
       const email = this.blind.normalizeEmail(verifiedEmail);
-      const material = await this.userKeys.provision(userId, passphrase, { email }, (key) =>
-        this.hierarchy.wrapOwnerForRecovery('user', String(userId), key),
-      );
+      let systemSeal: Prisma.InputJsonValue | undefined;
+      const material = await this.userKeys.provision(userId, passphrase, { email }, async (key) => {
+        await this.hierarchy.wrapOwnerForRecovery('user', String(userId), key);
+        const publicKey = await this.hierarchy.getSystemReadPublicKey();
+        if (publicKey) systemSeal = this.hierarchy.sealProfileForSystem(key, publicKey);
+      });
       await this.prisma.user.update({
         where: { id: userId },
         data: {
           ...material,
           email: this.blind.email(email),
           emailBlindIndex: this.blind.email(email),
+          ...(systemSeal ? { systemKeyEnvelope: systemSeal } : {}),
         },
       });
     } else {

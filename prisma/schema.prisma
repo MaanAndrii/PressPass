@@ -37,6 +37,10 @@ model User {
   passwordKdf         Json?                   @map("password_kdf")
   dataKeyEnvelope     Json?                   @map("data_key_envelope")
   recoveryKeyEnvelope Json?                   @map("recovery_key_envelope")
+  // Profile data key sealed (RSA-OAEP) to the system read public key, giving a
+  // Superadmin universal online read access. Populated at profile creation and
+  // lazily on the owner's next login for pre-existing accounts.
+  systemKeyEnvelope   Json?                   @map("system_key_envelope")
   tokenVersion        Int                     @default(0) @map("token_version")
   role                Role                    @default(JOURNALIST)
   emailVerifiedAt     DateTime?               @map("email_verified_at")
@@ -261,13 +265,22 @@ model AdminKeyMaterial {
 }
 
 /// Random KEK protecting global settings and the default card template.
+///
+/// It also holds the system READ key: an RSA keypair whose public key seals
+/// every profile data key (so a Superadmin gains universal online read access
+/// without editorial grants), while the private key is stored only encrypted
+/// under the System KEK — a database dump alone still reveals nothing.
 model SystemKeyMaterial {
-  id          Int                  @id @default(1)
-  keyVersion  Int                  @default(1) @map("key_version")
-  fingerprint String               @unique
-  createdAt   DateTime             @default(now()) @map("created_at")
-  rotatedAt   DateTime?            @map("rotated_at")
-  adminSlots  SystemAdminKeySlot[]
+  id                     Int                  @id @default(1)
+  keyVersion             Int                  @default(1) @map("key_version")
+  fingerprint            String               @unique
+  /// SPKI PEM of the system read public key (safe to store in the clear).
+  readPublicKey          String?              @map("read_public_key")
+  /// PKCS8 private key PEM, AES-256-GCM encrypted under the System KEK.
+  readPrivateKeyEnvelope Json?                @map("read_private_key_envelope")
+  createdAt              DateTime             @default(now()) @map("created_at")
+  rotatedAt              DateTime?            @map("rotated_at")
+  adminSlots             SystemAdminKeySlot[]
 
   @@map("system_key_material")
 }
