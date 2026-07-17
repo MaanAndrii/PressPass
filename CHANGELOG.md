@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.1] — 2026-07-17
 
+### Fixed
+
+- Інсталяційний візард (`deploy/install.sh`) більше не обривається одразу після
+  вводу останніх облікових даних на VPS без попередньо встановленого `openssl`:
+  генерація секретів на етапі запитань тепер працює через `openssl` **або**
+  `/dev/urandom` (coreutils), бо сам `openssl` доустановлюється лише пізніше.
+
 ### Security
 
 - Завершено owner-key фундамент Етапу 1: версійні AES-256-GCM envelopes, випадкові DEK/KEK,
