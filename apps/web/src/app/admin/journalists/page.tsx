@@ -163,8 +163,10 @@ export default function AdminJournalistsPage() {
             {filtered.map((j) => (
               <tr
                 key={j.id}
-                onClick={() => setSelected(j)}
-                className="cursor-pointer border-b border-slate-100 hover:bg-slate-50"
+                onClick={() => !j.encrypted && setSelected(j)}
+                className={`border-b border-slate-100 ${
+                  j.encrypted ? 'opacity-70' : 'cursor-pointer hover:bg-slate-50'
+                }`}
               >
                 <td className="px-4 py-2">
                   {photoUrl(j.photoPath) ? (
@@ -178,12 +180,23 @@ export default function AdminJournalistsPage() {
                   )}
                 </td>
                 <td className="px-4 py-2">
-                  <p className="font-medium">
-                    {j.fullName || (
-                      <span className="italic text-slate-400">(без імені — реєстрація)</span>
-                    )}
-                  </p>
-                  {j.fullNameEn && <p className="text-xs text-slate-400">{j.fullNameEn}</p>}
+                  {j.encrypted ? (
+                    <p
+                      className="font-medium italic text-slate-400"
+                      title="Самозареєстрований журналіст без членства у вашій редакції — його дані зашифровані та недоступні"
+                    >
+                      🔒 Немає доступу
+                    </p>
+                  ) : (
+                    <>
+                      <p className="font-medium">
+                        {j.fullName || (
+                          <span className="italic text-slate-400">(без імені — реєстрація)</span>
+                        )}
+                      </p>
+                      {j.fullNameEn && <p className="text-xs text-slate-400">{j.fullNameEn}</p>}
+                    </>
+                  )}
                 </td>
                 <td className="px-4 py-2 font-mono text-xs text-slate-500">{j.publicId}</td>
                 <td className="px-4 py-2">{j.email}</td>
