@@ -32,6 +32,19 @@ step() { echo; echo "${BOLD}${GREEN}==>${RESET}${BOLD} $*${RESET}"; }
 warn() { echo "${YELLOW}!${RESET} $*"; }
 die()  { echo "${RED}Помилка:${RESET} $*" >&2; exit 1; }
 
+# Секрети генеруються на етапі запитань — ще ДО встановлення пакетів. Тому тут не
+# можна залежати від openssl (він доустановлюється пізніше): якщо він уже є —
+# використовуємо його, інакше беремо ентропію з /dev/urandom через coreutils.
+# $1 — кількість байтів ентропії.
+rand_b64() {
+  if command -v openssl >/dev/null 2>&1; then openssl rand -base64 "$1" | tr -d '/+=\n'
+  else head -c "$1" /dev/urandom | base64 | tr -d '/+=\n'; fi
+}
+rand_hex() {
+  if command -v openssl >/dev/null 2>&1; then openssl rand -hex "$1"
+  else head -c "$1" /dev/urandom | od -An -tx1 | tr -d ' \n'; fi
+}
+
 [[ $EUID -eq 0 ]] || die "запустіть від root: sudo bash deploy/install.sh"
 [[ -f "$APP_DIR/package.json" ]] || die "не знайдено package.json у $APP_DIR"
 
@@ -102,15 +115,15 @@ if [[ -n "$PP_GOOGLE_CLIENT_ID" && -z "$PP_GOOGLE_CLIENT_SECRET" && $ASSUME_YES 
   read -rp "Google OAuth Client Secret: " PP_GOOGLE_CLIENT_SECRET
 fi
 
-[[ -n "$PP_ADMIN_PASSWORD" ]] || PP_ADMIN_PASSWORD="$(openssl rand -base64 12 | tr -d '/+=' )"
+[[ -n "$PP_ADMIN_PASSWORD" ]] || PP_ADMIN_PASSWORD="$(rand_b64 12)"
 if [[ -z "$PP_ADMIN_ENCRYPTION_PASSPHRASE" && $EXISTING_INSTALL -eq 1 ]]; then die "для оновлення задайте чинну PP_ADMIN_ENCRYPTION_PASSPHRASE"; fi
-[[ -n "$PP_ADMIN_ENCRYPTION_PASSPHRASE" ]] || PP_ADMIN_ENCRYPTION_PASSPHRASE="$(openssl rand -base64 24 | tr -d '/+=' )"
-PP_SUPERADMIN_RECOVERY_PASSPHRASE_1="${PP_SUPERADMIN_RECOVERY_PASSPHRASE_1:-$(openssl rand -base64 32 | tr -d '/+=' )}"
-PP_SUPERADMIN_RECOVERY_PASSPHRASE_2="${PP_SUPERADMIN_RECOVERY_PASSPHRASE_2:-$(openssl rand -base64 32 | tr -d '/+=' )}"
-[[ -n "$PP_DB_PASSWORD"    ]] || PP_DB_PASSWORD="$(openssl rand -hex 16)"
-JWT_SECRET="${JWT_SECRET:-$(env_value JWT_SECRET)}"; JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
-DATA_KEY_SECRET="${DATA_KEY_SECRET:-$(env_value DATA_KEY_SECRET)}"; DATA_KEY_SECRET="${DATA_KEY_SECRET:-$(openssl rand -hex 32)}"
-LOOKUP_KEY="${LOOKUP_KEY:-$(env_value LOOKUP_KEY)}"; LOOKUP_KEY="${LOOKUP_KEY:-$(openssl rand -hex 32)}"
+[[ -n "$PP_ADMIN_ENCRYPTION_PASSPHRASE" ]] || PP_ADMIN_ENCRYPTION_PASSPHRASE="$(rand_b64 24)"
+PP_SUPERADMIN_RECOVERY_PASSPHRASE_1="${PP_SUPERADMIN_RECOVERY_PASSPHRASE_1:-$(rand_b64 32)}"
+PP_SUPERADMIN_RECOVERY_PASSPHRASE_2="${PP_SUPERADMIN_RECOVERY_PASSPHRASE_2:-$(rand_b64 32)}"
+[[ -n "$PP_DB_PASSWORD"    ]] || PP_DB_PASSWORD="$(rand_hex 16)"
+JWT_SECRET="${JWT_SECRET:-$(env_value JWT_SECRET)}"; JWT_SECRET="${JWT_SECRET:-$(rand_hex 32)}"
+DATA_KEY_SECRET="${DATA_KEY_SECRET:-$(env_value DATA_KEY_SECRET)}"; DATA_KEY_SECRET="${DATA_KEY_SECRET:-$(rand_hex 32)}"
+LOOKUP_KEY="${LOOKUP_KEY:-$(env_value LOOKUP_KEY)}"; LOOKUP_KEY="${LOOKUP_KEY:-$(rand_hex 32)}"
 
 # Публічна схема: у режимах https-direct і proxy користувач працює по HTTPS.
 if [[ "$PP_ACCESS" == "http" ]]; then BASE_URL="http://$PP_DOMAIN"; else BASE_URL="https://$PP_DOMAIN"; fi
