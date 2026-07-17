@@ -5,7 +5,9 @@ import * as argon2 from 'argon2';
 
 import { mapJournalist } from '../common/journalist.mapper';
 import { UserKeyMaterialService } from '../crypto/user-key-material.service';
-import { EditorialKeyGrantService } from '../crypto/editorial-key-grant.service';
+import { UnlockSessionService } from '../crypto/unlock-session.service';
+import { BlindIndexService } from '../crypto/blind-index.service';
+import { DomainPayloadService } from '../crypto/domain-payload.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { JwtPayload } from './auth.types';
 
@@ -15,7 +17,9 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly userKeys: UserKeyMaterialService,
-    private readonly editorialGrants: EditorialKeyGrantService,
+    private readonly unlockSessions: UnlockSessionService,
+    private readonly blindIndexes: BlindIndexService,
+    private readonly payloads: DomainPayloadService,
   ) {}
 
   /**
@@ -24,9 +28,17 @@ export class AuthService {
    * and Google-only accounts, so the endpoint cannot enumerate accounts.
    */
   async login(email: string, password: string): Promise<LoginResponse> {
-    const user = await this.prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
-      include: { journalist: { include: { memberships: { include: { editorial: true } } } } },
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { emailBlindIndex: this.safeEmailIndex(email) },
+          { email: email.toLowerCase().trim() },
+        ],
+      },
+      include: {
+        adminKeyMaterial: true,
+        journalist: { include: { memberships: { include: { editorial: true } } } },
+      },
     });
     // Акаунти, створені через Google, не мають пароля.
     if (!user?.passwordHash) {
@@ -38,6 +50,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    let unlockedDataKey: Buffer | undefined;
     const hasPasswordKdf = user.passwordKdf != null;
     const hasDataKeyEnvelope = user.dataKeyEnvelope != null;
     if (hasPasswordKdf && hasDataKeyEnvelope) {
@@ -49,17 +62,7 @@ export class AuthService {
           user.dataKeyEnvelope,
         );
         try {
-          if (!user.recoveryKeyEnvelope) {
-            await this.prisma.user.update({
-              where: { id: user.id },
-              data: { recoveryKeyEnvelope: this.userKeys.createRecoveryGrant(user.id, dataKey) },
-            });
-          }
-          await this.editorialGrants.sync(
-            user.id,
-            user.journalist?.memberships.map((membership) => membership.editorial.id) ?? [],
-            dataKey,
-          );
+          unlockedDataKey = Buffer.from(dataKey);
         } finally {
           dataKey.fill(0);
         }
@@ -82,15 +85,42 @@ export class AuthService {
       editorialId: user.editorialId,
       tokenVersion: user.tokenVersion,
     };
+    let displayEmail = user.email;
+    let displayJournalist = user.journalist;
+    if (unlockedDataKey && user.encryptedData) {
+      displayEmail = this.userKeys.decryptUserData<{ email: string }>(
+        user.id,
+        user.encryptedData,
+        unlockedDataKey,
+      ).email;
+    }
+    if (unlockedDataKey && user.journalist?.encryptedData) {
+      const data = this.payloads.decrypt<Record<string, unknown>>(
+        'journalist',
+        user.journalist.id,
+        `user:${user.id}`,
+        user.journalist.encryptedData,
+        unlockedDataKey,
+      );
+      displayJournalist = { ...user.journalist, ...data } as typeof user.journalist;
+    }
+    const unlock = unlockedDataKey
+      ? this.unlockSessions.create(user.id, new Map([['profile', unlockedDataKey]]))
+      : undefined;
+    unlockedDataKey?.fill(0);
     return {
       accessToken: await this.jwtService.signAsync(payload),
+      unlockToken: unlock?.token,
+      unlockExpiresAt: unlock?.expiresAt,
+      encryptionEnrollmentRequired:
+        user.role === 'JOURNALIST' ? !hasPasswordKdf : !user.adminKeyMaterial,
       user: {
         id: user.id,
-        email: user.email,
+        email: displayEmail,
         role: user.role as Role,
         emailVerified: true,
         editorialId: user.editorialId,
-        journalist: user.journalist ? mapJournalist(user.journalist) : null,
+        journalist: displayJournalist ? mapJournalist(displayJournalist) : null,
         memberships:
           user.journalist?.memberships.map((m) => ({
             id: m.editorial.id,
@@ -100,7 +130,16 @@ export class AuthService {
     };
   }
 
+  private safeEmailIndex(email: string): string | undefined {
+    try {
+      return this.blindIndexes.email(email);
+    } catch {
+      return undefined;
+    }
+  }
+
   async logout(userId: number): Promise<{ success: boolean }> {
+    this.unlockSessions.revokeUser(userId);
     await this.prisma.user.update({
       where: { id: userId },
       data: { tokenVersion: { increment: 1 } },

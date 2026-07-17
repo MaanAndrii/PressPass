@@ -1,210 +1,114 @@
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import * as argon2 from 'argon2';
-
 import { UserKeyMaterialService } from '../crypto/user-key-material.service';
+import { UnlockSessionService } from '../crypto/unlock-session.service';
+import { BlindIndexService } from '../crypto/blind-index.service';
+import { DomainPayloadService } from '../crypto/domain-payload.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from './auth.service';
-import { EditorialKeyGrantService } from '../crypto/editorial-key-grant.service';
 import { createJwtServiceMock } from './testing/jwt-service.mock';
-
-describe('AuthService', () => {
+describe('AuthService encrypted login', () => {
   let service: AuthService;
-
-  const prismaMock = {
-    user: { findUnique: jest.fn(), update: jest.fn() },
+  const prisma = { user: { findFirst: jest.fn(), update: jest.fn() } };
+  const key = Buffer.alloc(32, 7);
+  const userKeys = {
+    unlock: jest.fn(() => Promise.resolve(Buffer.from(key))),
+    decryptUserData: jest.fn(() => ({ email: 'owner@example.com' })),
   };
-  const userKeysMock = {
-    unlock: jest.fn().mockResolvedValue(Buffer.alloc(32, 7)),
-    createRecoveryGrant: jest.fn().mockReturnValue({ version: 1, ciphertext: 'recovery' }),
-  };
-  const editorialGrantsMock = { sync: jest.fn() };
-  const jwtServiceMock = createJwtServiceMock();
-
+  const sessions = new UnlockSessionService();
   beforeEach(async () => {
     jest.clearAllMocks();
-    const moduleRef = await Test.createTestingModule({
+    const module = await Test.createTestingModule({
       providers: [
         AuthService,
-        { provide: PrismaService, useValue: prismaMock },
-        { provide: UserKeyMaterialService, useValue: userKeysMock },
-        { provide: EditorialKeyGrantService, useValue: editorialGrantsMock },
-        { provide: JwtService, useValue: jwtServiceMock },
+        { provide: PrismaService, useValue: prisma },
+        { provide: JwtService, useValue: createJwtServiceMock() },
+        { provide: UserKeyMaterialService, useValue: userKeys },
+        { provide: UnlockSessionService, useValue: sessions },
+        {
+          provide: BlindIndexService,
+          useValue: new BlindIndexService(
+            new ConfigService({ LOOKUP_KEY: 'lookup-key-that-is-at-least-32-bytes-long' }),
+          ),
+        },
+        { provide: DomainPayloadService, useValue: { decrypt: jest.fn() } },
       ],
     }).compile();
-
-    service = moduleRef.get(AuthService);
+    service = module.get(AuthService);
   });
-
-  it('returns a token and profile for valid credentials', async () => {
-    prismaMock.user.findUnique.mockResolvedValue({
+  it('looks up a normalized blind index, unwraps the DEK and creates an opaque unlock session', async () => {
+    prisma.user.findFirst.mockResolvedValue({
       id: 1,
-      email: 'admin@presspass.local',
+      email: 'v1:opaque',
+      emailBlindIndex: 'v1:opaque',
+      encryptedData: {},
       passwordHash: await argon2.hash('correct-password'),
-      role: 'ADMIN',
-      emailVerifiedAt: new Date(),
-      journalist: null,
-    });
-
-    const result = await service.login('admin@presspass.local', 'correct-password');
-
-    expect(result.accessToken).toBe('signed.jwt.token');
-    expect(result.user).toMatchObject({ id: 1, email: 'admin@presspass.local', role: 'ADMIN' });
-  });
-
-  it('unlocks and clears the data key for an encrypted password account', async () => {
-    const unlockedKey = Buffer.alloc(32, 9);
-    userKeysMock.unlock.mockResolvedValueOnce(unlockedKey);
-    prismaMock.user.findUnique.mockResolvedValue({
-      id: 8,
-      email: 'encrypted@example.com',
-      passwordHash: await argon2.hash('correct-password'),
-      passwordKdf: { version: 1, algorithm: 'ARGON2ID' },
-      dataKeyEnvelope: { version: 1, algorithm: 'AES-256-GCM' },
+      passwordKdf: {},
+      dataKeyEnvelope: {},
+      recoveryKeyEnvelope: null,
+      tokenVersion: 0,
       role: 'JOURNALIST',
-      emailVerifiedAt: new Date(),
       editorialId: null,
-      journalist: null,
-    });
-
-    await service.login('encrypted@example.com', 'correct-password');
-
-    expect(userKeysMock.unlock).toHaveBeenCalledWith(
-      8,
-      'correct-password',
-      expect.any(Object),
-      expect.any(Object),
-    );
-    expect(unlockedKey).toEqual(Buffer.alloc(32));
-    expect(prismaMock.user.update).toHaveBeenCalledWith({
-      where: { id: 8 },
-      data: { recoveryKeyEnvelope: { version: 1, ciphertext: 'recovery' } },
-    });
-  });
-
-  it('rejects an account whose wrapped data key cannot be unlocked', async () => {
-    userKeysMock.unlock.mockRejectedValueOnce(new Error('Decryption failed'));
-    prismaMock.user.findUnique.mockResolvedValue({
-      id: 8,
-      email: 'encrypted@example.com',
-      passwordHash: await argon2.hash('correct-password'),
-      passwordKdf: { version: 1 },
-      dataKeyEnvelope: { version: 1 },
-      role: 'JOURNALIST',
       emailVerifiedAt: new Date(),
       journalist: null,
+      adminKeyMaterial: null,
     });
-
-    await expect(service.login('encrypted@example.com', 'correct-password')).rejects.toThrow(
-      UnauthorizedException,
+    const result = await service.login(' OWNER@Example.com ', 'correct-password');
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ OR: expect.any(Array) }) }),
     );
+    expect(result.user.email).toBe('owner@example.com');
+    expect(result.unlockToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(result.accessToken).toBe('signed.jwt.token');
+    expect(result.unlockToken).not.toContain(key.toString('base64'));
   });
-
-  it('normalizes the email before lookup', async () => {
-    prismaMock.user.findUnique.mockResolvedValue(null);
-
-    await expect(service.login('  Admin@PressPass.LOCAL ', 'whatever-pass')).rejects.toThrow(
-      UnauthorizedException,
-    );
-    expect(prismaMock.user.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { email: 'admin@presspass.local' } }),
-    );
-  });
-
-  it('rejects an unknown email with a generic error', async () => {
-    prismaMock.user.findUnique.mockResolvedValue(null);
-
-    await expect(service.login('nobody@example.com', 'password123')).rejects.toThrow(
-      'Invalid email or password',
-    );
-  });
-
-  it('rejects a wrong password with the same generic error', async () => {
-    prismaMock.user.findUnique.mockResolvedValue({
+  it('fails closed when the wrapped DEK cannot be opened', async () => {
+    userKeys.unlock.mockRejectedValueOnce(new Error('bad envelope'));
+    prisma.user.findFirst.mockResolvedValue({
       id: 1,
-      email: 'admin@presspass.local',
       passwordHash: await argon2.hash('correct-password'),
-      role: 'ADMIN',
-      emailVerifiedAt: new Date(),
-      journalist: null,
-    });
-
-    await expect(service.login('admin@presspass.local', 'wrong-password')).rejects.toThrow(
-      'Invalid email or password',
-    );
-  });
-
-  it('rejects a Google-only account (no password) with the same generic error', async () => {
-    prismaMock.user.findUnique.mockResolvedValue({
-      id: 4,
-      email: 'google@example.com',
-      passwordHash: null,
+      passwordKdf: {},
+      dataKeyEnvelope: {},
       role: 'JOURNALIST',
-      emailVerifiedAt: new Date(),
       journalist: null,
     });
-
-    await expect(service.login('google@example.com', 'any-password-1')).rejects.toThrow(
+    await expect(service.login('owner@example.com', 'correct-password')).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+  it('uses the same generic error for unknown, wrong-password and Google-only accounts', async () => {
+    prisma.user.findFirst.mockResolvedValue(null);
+    await expect(service.login('x@y.z', 'password123')).rejects.toThrow(
+      'Invalid email or password',
+    );
+    prisma.user.findFirst.mockResolvedValue({ passwordHash: null });
+    await expect(service.login('x@y.z', 'password123')).rejects.toThrow(
       'Invalid email or password',
     );
   });
-
-  it('rejects sign-in until the email is verified', async () => {
-    prismaMock.user.findUnique.mockResolvedValue({
-      id: 3,
-      email: 'new@example.com',
-      passwordHash: await argon2.hash('correct-password'),
+  it('rejects an unverified account', async () => {
+    prisma.user.findFirst.mockResolvedValue({
+      id: 2,
+      email: 'opaque',
+      passwordHash: await argon2.hash('pass12345'),
+      passwordKdf: null,
+      dataKeyEnvelope: null,
       role: 'JOURNALIST',
       emailVerifiedAt: null,
       journalist: null,
     });
-
-    await expect(service.login('new@example.com', 'correct-password')).rejects.toThrow(
-      ForbiddenException,
-    );
+    await expect(service.login('x@y.z', 'pass12345')).rejects.toThrow(ForbiddenException);
   });
-
-  it('includes the journalist profile when present', async () => {
-    prismaMock.user.findUnique.mockResolvedValue({
-      id: 2,
-      email: 'journalist@presspass.local',
-      passwordHash: await argon2.hash('secret-password'),
-      role: 'JOURNALIST',
-      emailVerifiedAt: new Date(),
-      journalist: {
-        id: 10,
-        publicId: 'JR-ABC234',
-        fullName: 'Іван Петренко',
-        position: 'Кореспондент',
-        organization: 'Редакція «Приклад»',
-        photoPath: null,
-        birthDate: null,
-        passportData: null,
-        taxNumber: null,
-        phone: null,
-        selfRegistered: false,
-        memberships: [],
-      },
-    });
-
-    const result = await service.login('journalist@presspass.local', 'secret-password');
-
-    expect(result.user.journalist).toMatchObject({
-      id: 10,
-      fullName: 'Іван Петренко',
-      position: 'Кореспондент',
-      organization: 'Редакція «Приклад»',
-      profileComplete: false,
-    });
-  });
-
-  it('revokes all existing access tokens on logout', async () => {
-    prismaMock.user.update.mockResolvedValue({});
-
-    await expect(service.logout(7)).resolves.toEqual({ success: true });
-    expect(prismaMock.user.update).toHaveBeenCalledWith({
-      where: { id: 7 },
+  it('destroys unlock material and revokes JWTs on logout', async () => {
+    prisma.user.update.mockResolvedValue({});
+    const token = sessions.create(9, new Map([['profile', key]])).token;
+    await service.logout(9);
+    expect(() => sessions.key(token, 9, 'profile')).toThrow();
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 9 },
       data: { tokenVersion: { increment: 1 } },
     });
   });

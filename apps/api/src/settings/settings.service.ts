@@ -1,54 +1,44 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AppSettings, UpdateSettingsInput } from '@presspass/shared';
-
 import { PrismaService } from '../prisma/prisma.service';
-
+import { UnlockSessionService } from '../crypto/unlock-session.service';
+import { DomainPayloadService } from '../crypto/domain-payload.service';
+import { EncryptedFileService } from '../crypto/encrypted-file.service';
+import { PublicMediaCacheService } from '../crypto/public-media-cache.service';
 const SINGLETON_ID = 1;
-
-/**
- * Runtime-editable settings. The Resend API key can be set from the admin
- * panel; a stored value overrides the RESEND_API_KEY / MAIL_FROM env vars.
- * The key itself is never returned to clients — only a masked preview.
- */
+interface SecretSettings {
+  resendApiKey: string | null;
+  mailFrom: string;
+  nszhuLogoPath: string | null;
+}
 @Injectable()
 export class SettingsService {
+  private runtime: SecretSettings | null = null;
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly sessions: UnlockSessionService,
+    private readonly payloads: DomainPayloadService,
+    private readonly files: EncryptedFileService,
+    private readonly publicMedia: PublicMediaCacheService,
   ) {}
-
-  /** Effective Resend key: DB value first, then env. Used by MailService. */
   async resendApiKey(): Promise<string | null> {
-    const row = await this.prisma.appSetting.findUnique({ where: { id: SINGLETON_ID } });
-    return row?.resendApiKey || this.config.get<string>('RESEND_API_KEY') || null;
+    return this.runtime?.resendApiKey || this.config.get<string>('RESEND_API_KEY') || null;
   }
-
   async mailFrom(): Promise<string> {
-    const row = await this.prisma.appSetting.findUnique({ where: { id: SINGLETON_ID } });
     return (
-      row?.mailFrom || this.config.get<string>('MAIL_FROM') || 'PressPass <onboarding@resend.dev>'
+      this.runtime?.mailFrom ||
+      this.config.get<string>('MAIL_FROM') ||
+      'PressPass <onboarding@resend.dev>'
     );
   }
-
-  /** Uploaded NSZHU logo path (shown on union members' cards), or null. */
   async nszhuLogoPath(): Promise<string | null> {
-    const row = await this.prisma.appSetting.findUnique({ where: { id: SINGLETON_ID } });
-    return row?.nszhuLogoPath ?? null;
+    return this.runtime?.nszhuLogoPath ?? null;
   }
 
-  /** Sets (or clears with null) the NSZHU logo path after an upload/delete. */
-  async setNszhuLogo(path: string | null): Promise<AppSettings> {
-    await this.prisma.appSetting.upsert({
-      where: { id: SINGLETON_ID },
-      update: { nszhuLogoPath: path },
-      create: { id: SINGLETON_ID, nszhuLogoPath: path },
-    });
-    return this.getPublic();
-  }
-
-  /** Public view for the admin panel (secret masked). */
-  async getPublic(): Promise<AppSettings> {
+  async getPublic(userId?: number, token?: string): Promise<AppSettings> {
+    if (userId && token) await this.load(userId, token);
     const key = await this.resendApiKey();
     return {
       resendConfigured: Boolean(key),
@@ -57,29 +47,103 @@ export class SettingsService {
       nszhuLogoPath: await this.nszhuLogoPath(),
     };
   }
-
-  async update(input: UpdateSettingsInput): Promise<AppSettings> {
-    const data: { resendApiKey?: string | null; mailFrom?: string } = {};
-    if (input.resendApiKey !== undefined) {
-      // Empty string clears the stored key (falls back to env).
-      data.resendApiKey = input.resendApiKey.trim() || null;
+  async update(input: UpdateSettingsInput, userId: number, token?: string): Promise<AppSettings> {
+    const key = this.key(userId, token);
+    const current = await this.readRow(key);
+    const next: SecretSettings = {
+      ...current,
+      ...(input.resendApiKey !== undefined
+        ? { resendApiKey: input.resendApiKey.trim() || null }
+        : {}),
+      ...(input.mailFrom !== undefined ? { mailFrom: input.mailFrom.trim() } : {}),
+    };
+    try {
+      await this.save(next, key);
+      this.runtime = next;
+    } finally {
+      key.fill(0);
     }
-    if (input.mailFrom !== undefined) {
-      data.mailFrom = input.mailFrom.trim();
-    }
-    await this.prisma.appSetting.upsert({
-      where: { id: SINGLETON_ID },
-      update: data,
-      create: { id: SINGLETON_ID, ...data },
-    });
     return this.getPublic();
   }
-}
-
-/** Masks a secret, keeping only a short prefix and suffix. */
-function mask(secret: string): string {
-  if (secret.length <= 8) {
-    return '••••';
+  async setNszhuLogo(
+    bytes: Buffer | null,
+    mimeType: string | null,
+    userId: number,
+    token?: string,
+  ): Promise<AppSettings> {
+    const key = this.key(userId, token);
+    const current = await this.readRow(key);
+    try {
+      let path: string | null = null;
+      if (bytes && mimeType) {
+        const id = await this.files.store({
+          ownerType: 'system',
+          ownerId: '1',
+          purpose: 'nszhu-logo',
+          mimeType,
+          bytes,
+          ownerKey: key,
+        });
+        path = `/media/${id}`;
+      }
+      const next = { ...current, nszhuLogoPath: path };
+      await this.save(next, key);
+      this.runtime = await this.project(next, key);
+      if (path)
+        await this.files.cleanupReplaced('system', '1', 'nszhu-logo', path.slice('/media/'.length));
+    } finally {
+      key.fill(0);
+    }
+    return this.getPublic();
   }
-  return `${secret.slice(0, 3)}…${secret.slice(-4)}`;
+  private async load(userId: number, token: string): Promise<void> {
+    const key = this.key(userId, token);
+    try {
+      this.runtime = await this.project(await this.readRow(key), key);
+    } finally {
+      key.fill(0);
+    }
+  }
+  private async project(settings: SecretSettings, key: Buffer): Promise<SecretSettings> {
+    const fileId = settings.nszhuLogoPath?.match(/^\/media\/([0-9a-f-]+)$/i)?.[1];
+    if (!fileId) return settings;
+    const file = await this.files.read(fileId, key);
+    return {
+      ...settings,
+      nszhuLogoPath: `/public-media/${this.publicMedia.put(file.bytes, file.mimeType, 3600)}`,
+    };
+  }
+  private async readRow(key: Buffer): Promise<SecretSettings> {
+    const row = await this.prisma.appSetting.findUnique({ where: { id: SINGLETON_ID } });
+    if (row?.encryptedData)
+      return this.payloads.decrypt('settings', 1, 'system:1', row.encryptedData, key);
+    return {
+      resendApiKey: row?.resendApiKey || null,
+      mailFrom: row?.mailFrom || this.config.get('MAIL_FROM', 'PressPass <onboarding@resend.dev>'),
+      nszhuLogoPath: row?.nszhuLogoPath ?? null,
+    };
+  }
+  private async save(data: SecretSettings, key: Buffer): Promise<void> {
+    await this.prisma.appSetting.upsert({
+      where: { id: 1 },
+      update: {
+        encryptedData: this.payloads.encrypt('settings', 1, 'system:1', data, key),
+        resendApiKey: null,
+        mailFrom: null,
+        nszhuLogoPath: null,
+      },
+      create: { id: 1, encryptedData: this.payloads.encrypt('settings', 1, 'system:1', data, key) },
+    });
+  }
+  private key(userId: number, token?: string): Buffer {
+    if (!token) throw new BadRequestException('Encryption unlock required');
+    try {
+      return this.sessions.key(token, userId, 'system');
+    } catch {
+      throw new BadRequestException('Encryption unlock required');
+    }
+  }
+}
+function mask(secret: string): string {
+  return secret.length <= 8 ? '••••' : `${secret.slice(0, 3)}…${secret.slice(-4)}`;
 }

@@ -88,7 +88,7 @@ Stateless: клієнт видаляє токен. → `200 { "success": true }`
   "position": "Кореспондент",
   "positionEn": "Correspondent",
   "verifyUrl": "https://id.domain.ua/verify/0190…",
-  "journalist": { "id": 1, "fullName": "Іван Петренко", "photoPath": "/uploads/photos/….jpg" },
+  "journalist": { "id": 1, "fullName": "Іван Петренко", "photoPath": "/media/{opaque-file-uuid}" },
   "editorial": {
     "id": 1,
     "name": "ТОВ «Приклад Медіа»",
@@ -96,7 +96,7 @@ Stateless: клієнт видаляє токен. → `200 { "success": true }`
     "displayNameEn": "«Pryklad» Media",
     "mediaId": "R40-02551",
     "website": "https://pryklad.media/registry",
-    "logoPath": "/uploads/branding/….png"
+    "logoPath": "/media/{opaque-file-uuid}"
   }
 }
 ```
@@ -129,7 +129,7 @@ Stateless: клієнт видаляє токен. → `200 { "success": true }`
   "fullName": "Іван Петренко",
   "position": "Кореспондент",
   "organization": "Онлайн-медіа «Приклад»",
-  "photoPath": "/uploads/photos/….jpg",
+  "photoPath": "/media/{opaque-file-uuid}",
   "editorial": {
     "id": 1,
     "name": "ТОВ «Приклад Медіа»",
@@ -137,10 +137,10 @@ Stateless: клієнт видаляє токен. → `200 { "success": true }`
     "displayNameEn": "«Pryklad» Media",
     "mediaId": "R40-02551",
     "website": "https://pryklad.media/registry",
-    "logoPath": "/uploads/branding/….png"
+    "logoPath": "/media/{opaque-file-uuid}"
   },
   "nszhuMember": true,
-  "nszhuLogoPath": "/uploads/branding/….png"
+  "nszhuLogoPath": "/media/{opaque-file-uuid}"
 }
 ```
 
@@ -279,7 +279,7 @@ Stateless: клієнт видаляє токен. → `200 { "success": true }`
 
 ### GET /branding (публічний)
 
-Брендинг, потрібний для рендерингу картки (без секретів): `{ "nszhuLogoPath": "/uploads/branding/….png" | null }`. Логотип НСЖУ показується на картці лише для журналістів-членів НСЖУ.
+Брендинг, потрібний для рендерингу картки (без секретів): `{ "nszhuLogoPath": "/media/{opaque-file-uuid}" | null }`. Логотип НСЖУ показується на картці лише для журналістів-членів НСЖУ.
 
 ### GET /card-template?editorialId=… (публічний)
 
@@ -359,7 +359,7 @@ Stateless: клієнт видаляє токен. → `200 { "success": true }`
 
 ### PUT /admin/card-template?editorialId=… — оновлення дизайну (ADMIN, EDITORIAL_ADMIN)
 
-Зберігає дизайн для редакції (`editorialId`) або системний стандарт (без параметра — лише ADMIN). Редакційний адмін може редагувати лише дизайн власної редакції. Вхідні дані завжди санітизуються: лише білий список ключів, кольори — тільки hex, тексти обмежені за довжиною, логотип/шлях зображення — лише відносний шлях (`/uploads/...`) або `null`, координати/розміри елементів обрізаються в межах полотна, невідомі типи/джерела відкидаються. Значення підставляються **як дані** (React екранує) — HTML/JS у шаблоні ніколи не виконується.
+Зберігає дизайн для редакції (`editorialId`) або системний стандарт (без параметра — лише ADMIN). Редакційний адмін може редагувати лише дизайн власної редакції. Вхідні дані завжди санітизуються: лише білий список ключів, кольори — тільки hex, тексти обмежені за довжиною, логотип/шлях зображення — лише відносний шлях (`/media/...`) або `null`, координати/розміри елементів обрізаються в межах полотна, невідомі типи/джерела відкидаються. Значення підставляються **як дані** (React екранує) — HTML/JS у шаблоні ніколи не виконується.
 
 ### POST /admin/card-template/reset?editorialId=… — скидання дизайну (ADMIN, EDITORIAL_ADMIN)
 
@@ -374,7 +374,7 @@ Stateless: клієнт видаляє токен. → `200 { "success": true }`
   "resendConfigured": true,
   "resendKeyPreview": "re_…7766",
   "mailFrom": "PressPass <no-reply@domain.ua>",
-  "nszhuLogoPath": "/uploads/branding/….png"
+  "nszhuLogoPath": "/media/{opaque-file-uuid}"
 }
 ```
 
@@ -384,7 +384,7 @@ Stateless: клієнт видаляє токен. → `200 { "success": true }`
 
 Порожній `resendApiKey` очищає збережений ключ (повернення до env). Значення з БД мають пріоритет над змінними середовища.
 
-### POST /admin/settings/nszhu-logo — multipart, поле `logo` (SVG/PNG/WebP/JPEG, ≤2 МБ)
+### POST /admin/settings/nszhu-logo — multipart, поле `logo` (PNG/WebP/JPEG, ≤2 МБ)
 
 Завантажує логотип НСЖУ. `DELETE /admin/settings/nszhu-logo` — видаляє його. Обидва повертають оновлені `AppSettings`.
 

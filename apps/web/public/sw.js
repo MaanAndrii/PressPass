@@ -3,16 +3,14 @@
  *
  * Strategy:
  *  - App shell (login/card pages, manifest, icons) is pre-cached on install.
- *  - Every successful GET response (same-origin pages/assets and the API
- *    `GET /card` call) is cached at runtime; when the network is unavailable
- *    the last cached response is served, so the most recently loaded card
- *    keeps working offline (SRS §11).
+ *  - Public same-origin pages/assets may be cached at runtime. Authorized,
+ *    encrypted-media, unlock and private/no-store responses are never cached.
  *  - Non-GET requests are never intercepted.
  *  - The admin panel (/admin) is NEVER part of the installable PWA: it is a
  *    desktop-only, separate-domain app, so those requests bypass the worker
  *    and are never cached.
  */
-const CACHE_NAME = 'presspass-v4';
+const CACHE_NAME = 'presspass-v5';
 const APP_SHELL = [
   '/',
   '/login',
@@ -60,12 +58,20 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   // Токенізовані QR-відповіді короткоживучі — кешувати їх немає сенсу.
-  const isDynamicQr = request.url.includes('/card/qr');
+  const path = new URL(request.url).pathname;
+  const isDynamicQr = path.includes('/card/qr');
+  const isPrivate =
+    request.headers.has('Authorization') ||
+    path.includes('/media/') ||
+    path.includes('/encryption/');
 
   event.respondWith(
     fetch(request)
       .then((response) => {
-        if (response.ok && !isDynamicQr) {
+        const noStore = /(?:^|,)\s*(?:no-store|private)(?:\s|,|$)/i.test(
+          response.headers.get('Cache-Control') || '',
+        );
+        if (response.ok && !isDynamicQr && !isPrivate && !noStore) {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
         }

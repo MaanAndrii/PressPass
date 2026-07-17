@@ -9,6 +9,10 @@ import type { AdminAccount } from '@presspass/shared';
 import * as argon2 from 'argon2';
 
 import { UserKeyMaterialService } from '../crypto/user-key-material.service';
+import { BlindIndexService } from '../crypto/blind-index.service';
+import { KeyHierarchyService } from '../crypto/key-hierarchy.service';
+import { UnlockSessionService } from '../crypto/unlock-session.service';
+import type { JwtPayload } from '../auth/auth.types';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateAdminDto } from './dto/create-admin.dto';
 
@@ -24,6 +28,9 @@ export class AdminsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly userKeys: UserKeyMaterialService,
+    private readonly blindIndexes: BlindIndexService,
+    private readonly hierarchy: KeyHierarchyService,
+    private readonly sessions: UnlockSessionService,
   ) {}
 
   async findAll(): Promise<AdminAccount[]> {
@@ -44,9 +51,15 @@ export class AdminsService {
   }
 
   /** Creates a system (ADMIN) or editorial-bound (EDITORIAL_ADMIN) administrator. */
-  async create(dto: CreateAdminDto): Promise<AdminAccount> {
-    const email = dto.email.toLowerCase().trim();
-    const existing = await this.prisma.user.findUnique({ where: { email } });
+  async create(
+    dto: CreateAdminDto,
+    actor: JwtPayload,
+    unlockToken?: string,
+  ): Promise<AdminAccount> {
+    const email = this.blindIndexes.normalizeEmail(dto.email);
+    const existing = await this.prisma.user.findFirst({
+      where: { OR: [{ emailBlindIndex: this.blindIndexes.email(email) }, { email }] },
+    });
     if (existing) {
       throw new ConflictException('A user with this email already exists');
     }
@@ -68,7 +81,8 @@ export class AdminsService {
     const admin = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: {
-          email,
+          email: this.blindIndexes.email(email),
+          emailBlindIndex: this.blindIndexes.email(email),
           passwordHash,
           role,
           emailVerifiedAt: new Date(),
@@ -76,12 +90,78 @@ export class AdminsService {
           editorialId: role === 'EDITORIAL_ADMIN' ? dto.editorialId : null,
         },
       });
-      const keyMaterial = await this.userKeys.provision(created.id, dto.password);
-      return tx.user.update({ where: { id: created.id }, data: keyMaterial });
+      const keyMaterial = await this.userKeys.provision(
+        created.id,
+        dto.password,
+        { email },
+        (key) => this.hierarchy.wrapOwnerForRecovery('user', String(created.id), key, tx),
+      );
+      return tx.user.update({
+        where: { id: created.id },
+        data: { ...keyMaterial, email: this.blindIndexes.email(email) },
+      });
     });
+    const newAdminKey = await this.hierarchy.enrollAdmin(admin.id, dto.encryptionPassphrase);
+    try {
+      if (role === 'ADMIN') {
+        if (!unlockToken) throw new BadRequestException('Encryption unlock required');
+        let systemKey: Buffer;
+        try {
+          systemKey = this.sessions.key(unlockToken, actor.sub, 'system');
+        } catch {
+          throw new BadRequestException('Encryption unlock required');
+        }
+        try {
+          await this.hierarchy.grantSystemToAdmin(admin.id, systemKey, newAdminKey);
+        } finally {
+          systemKey.fill(0);
+        }
+        for (const editorial of await this.prisma.editorial.findMany({ select: { id: true } })) {
+          let editorialKey: Buffer;
+          try {
+            editorialKey = this.sessions.key(unlockToken, actor.sub, `editorial:${editorial.id}`);
+          } catch {
+            throw new BadRequestException(
+              `Editorial ${editorial.id} must be unlocked before granting the new Superadmin`,
+            );
+          }
+          try {
+            await this.hierarchy.grantEditorialToAdmin(
+              editorial.id,
+              admin.id,
+              editorialKey,
+              newAdminKey,
+            );
+          } finally {
+            editorialKey.fill(0);
+          }
+        }
+      }
+      if (role === 'EDITORIAL_ADMIN' && dto.editorialId) {
+        if (!unlockToken) throw new BadRequestException('Encryption unlock required');
+        let editorialKey: Buffer;
+        try {
+          editorialKey = this.sessions.key(unlockToken, actor.sub, `editorial:${dto.editorialId}`);
+        } catch {
+          throw new BadRequestException('Encryption unlock required');
+        }
+        try {
+          await this.hierarchy.grantEditorialToAdmin(
+            dto.editorialId,
+            admin.id,
+            editorialKey,
+            newAdminKey,
+          );
+        } finally {
+          editorialKey.fill(0);
+        }
+      }
+    } finally {
+      newAdminKey.fill(0);
+    }
     return {
       id: admin.id,
-      email: admin.email,
+      email,
       emailVerified: true,
       role,
       editorialId: admin.editorialId,

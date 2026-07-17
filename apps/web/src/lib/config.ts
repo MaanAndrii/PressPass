@@ -28,6 +28,6 @@ export function photoUrl(photoPath: string | null): string | null {
     return photoPath;
   }
   // Absolute API origin (dev): photos live on the API host.
-  // Relative API path (production behind Nginx): /uploads/... is same-origin.
-  return API_URL.startsWith('http') ? `${API_URL}${photoPath}` : photoPath;
+  // Relative API path (production behind Nginx): protected media is served by the API.
+  return `${API_URL}${photoPath}`;
 }

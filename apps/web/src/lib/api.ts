@@ -1,7 +1,7 @@
 'use client';
 
 import { API_URL } from './config';
-import { getToken } from './auth';
+import { getToken, getUnlockToken } from './auth';
 
 export class ApiError extends Error {
   constructor(
@@ -36,6 +36,8 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
     if (token) {
       headers.Authorization = `Bearer ${token}`;
     }
+    const unlock = getUnlockToken();
+    if (unlock) headers['X-Unlock-Token'] = unlock;
   }
 
   const response = await fetch(`${API_URL}${path}`, {
@@ -70,6 +72,8 @@ export async function apiUpload<T>(path: string, field: string, file: File): Pro
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
+  const unlock = getUnlockToken();
+  if (unlock) headers['X-Unlock-Token'] = unlock;
 
   const response = await fetch(`${API_URL}${path}`, { method: 'POST', headers, body: formData });
   if (!response.ok) {

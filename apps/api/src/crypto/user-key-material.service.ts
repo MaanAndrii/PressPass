@@ -5,11 +5,13 @@ import { createHmac } from 'crypto';
 
 import type { Argon2idDescriptorV1, EncryptedEnvelopeV1, EncryptionContext } from './crypto.types';
 import { DataEncryptionService } from './data-encryption.service';
+import { ProtectedDataService } from './protected-data.service';
 
 export interface PersistedUserKeyMaterial {
   passwordKdf: Prisma.InputJsonValue;
   dataKeyEnvelope: Prisma.InputJsonValue;
-  recoveryKeyEnvelope: Prisma.InputJsonValue;
+  recoveryKeyEnvelope?: Prisma.InputJsonValue;
+  encryptedData?: Prisma.InputJsonValue;
 }
 
 @Injectable()
@@ -17,18 +19,30 @@ export class UserKeyMaterialService {
   constructor(
     private readonly encryption: DataEncryptionService,
     private readonly config: ConfigService,
+    private readonly protectedData: ProtectedDataService,
   ) {}
 
-  async provision(userId: number, password: string): Promise<PersistedUserKeyMaterial> {
+  async provision(
+    userId: number,
+    password: string,
+    initialData?: Record<string, unknown>,
+    onDataKey?: (dataKey: Buffer) => Promise<void>,
+  ): Promise<PersistedUserKeyMaterial> {
     const dataKey = this.encryption.generateDataKey();
     const wrapping = await this.encryption.createPasswordWrappingKey(password);
     try {
       const envelope = this.encryption.wrapKey(dataKey, wrapping.key, this.context(userId));
-      const recoveryEnvelope = this.createRecoveryGrant(userId, dataKey);
+      if (onDataKey) await onDataKey(dataKey);
       return {
         passwordKdf: this.toJson(wrapping.descriptor),
         dataKeyEnvelope: this.toJson(envelope),
-        recoveryKeyEnvelope: recoveryEnvelope,
+        ...(initialData
+          ? {
+              encryptedData: this.toJson(
+                this.protectedData.encrypt(initialData, dataKey, this.payloadContext(userId)),
+              ),
+            }
+          : {}),
       };
     } finally {
       dataKey.fill(0);
@@ -121,6 +135,24 @@ export class UserKeyMaterialService {
     }
   }
 
+  async wrapExisting(
+    userId: number,
+    newPassword: string,
+    dataKey: Buffer,
+  ): Promise<PersistedUserKeyMaterial> {
+    const wrapping = await this.encryption.createPasswordWrappingKey(newPassword);
+    try {
+      return {
+        passwordKdf: this.toJson(wrapping.descriptor),
+        dataKeyEnvelope: this.toJson(
+          this.encryption.wrapKey(dataKey, wrapping.key, this.context(userId)),
+        ),
+      };
+    } finally {
+      wrapping.key.fill(0);
+    }
+  }
+
   async rewrap(
     userId: number,
     currentPassword: string,
@@ -135,12 +167,32 @@ export class UserKeyMaterialService {
       return {
         passwordKdf: this.toJson(newWrapping.descriptor),
         dataKeyEnvelope: this.toJson(envelope),
-        recoveryKeyEnvelope: this.createRecoveryGrant(userId, dataKey),
       };
     } finally {
       dataKey.fill(0);
       newWrapping.key.fill(0);
     }
+  }
+
+  decryptUserData<T>(userId: number, encryptedData: unknown, dataKey: Buffer): T {
+    return this.protectedData.decrypt<T>(encryptedData, dataKey, this.payloadContext(userId));
+  }
+
+  encryptUserData(
+    userId: number,
+    data: Record<string, unknown>,
+    dataKey: Buffer,
+  ): Prisma.InputJsonValue {
+    return this.toJson(this.protectedData.encrypt(data, dataKey, this.payloadContext(userId)));
+  }
+
+  private payloadContext(userId: number): EncryptionContext {
+    return {
+      entity: 'user',
+      entityId: String(userId),
+      field: 'payload',
+      ownerId: `user:${userId}`,
+    };
   }
 
   private context(userId: number): EncryptionContext {

@@ -4,7 +4,16 @@
     "/admin/settings": {
       "get": {
         "operationId": "SettingsController_get",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
@@ -22,7 +31,16 @@
       },
       "put": {
         "operationId": "SettingsController_update",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -52,7 +70,16 @@
     "/admin/settings/nszhu-logo": {
       "post": {
         "operationId": "SettingsController_uploadNszhuLogo",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -82,14 +109,23 @@
             "bearer": []
           }
         ],
-        "summary": "Upload the NSZHU logo (SVG/PNG/WebP/JPEG, ≤2 MB)",
+        "summary": "Upload the NSZHU logo (PNG/WebP/JPEG, ≤2 MB)",
         "tags": [
           "admin/settings"
         ]
       },
       "delete": {
         "operationId": "SettingsController_removeNszhuLogo",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
@@ -103,6 +139,319 @@
         "summary": "Remove the uploaded NSZHU logo",
         "tags": [
           "admin/settings"
+        ]
+      }
+    },
+    "/encryption/enroll": {
+      "post": {
+        "operationId": "EncryptionAccessController_enroll",
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EncryptionPassphraseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Enroll a distinct encryption passphrase",
+        "tags": [
+          "encryption"
+        ]
+      }
+    },
+    "/encryption/unlock": {
+      "post": {
+        "operationId": "EncryptionAccessController_unlock",
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EncryptionPassphraseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a short-lived in-memory key session",
+        "tags": [
+          "encryption"
+        ]
+      }
+    },
+    "/encryption/editorials/{editorialId}/claim": {
+      "post": {
+        "operationId": "EncryptionAccessController_claim",
+        "parameters": [
+          {
+            "name": "editorialId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Wrap an independently unlocked editorial key for the current Superadmin",
+        "tags": [
+          "encryption"
+        ]
+      }
+    },
+    "/encryption/editorial-grants/{editorialId}": {
+      "post": {
+        "operationId": "EncryptionAccessController_grant",
+        "parameters": [
+          {
+            "name": "editorialId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Wrap the unlocked profile key for an independently unlocked editorial",
+        "tags": [
+          "encryption"
+        ]
+      }
+    },
+    "/encryption/recovery-slots": {
+      "post": {
+        "operationId": "EncryptionAccessController_recovery",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoverySlotsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create two independent one-time offline Superadmin recovery kits",
+        "tags": [
+          "encryption"
+        ]
+      }
+    },
+    "/encryption/change-passphrase": {
+      "post": {
+        "operationId": "EncryptionAccessController_change",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeEncryptionPassphraseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Rewrap the same owner key with a new encryption passphrase",
+        "tags": [
+          "encryption"
+        ]
+      }
+    },
+    "/encryption/recover-user": {
+      "post": {
+        "operationId": "EncryptionAccessController_recoverUser",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoverOwnerDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Use an offline Superadmin kit to rewrap a user DEK",
+        "tags": [
+          "encryption"
+        ]
+      }
+    },
+    "/encryption/lock": {
+      "post": {
+        "operationId": "EncryptionAccessController_lock",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Destroy every in-memory key session for the account",
+        "tags": [
+          "encryption"
+        ]
+      }
+    },
+    "/media/{id}": {
+      "get": {
+        "operationId": "EncryptedMediaController_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "media"
+        ]
+      }
+    },
+    "/public-media/{id}": {
+      "get": {
+        "operationId": "PublicMediaController_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "PublicMedia"
         ]
       }
     },
@@ -238,7 +587,6 @@
     },
     "/auth/logout": {
       "post": {
-        "description": "JWT authentication is stateless: the client discards its token. The endpoint exists for API symmetry and future token revocation (v2).",
         "operationId": "AuthController_logout",
         "parameters": [],
         "responses": {
@@ -251,7 +599,7 @@
             "bearer": []
           }
         ],
-        "summary": "Sign out (stateless)",
+        "summary": "Sign out and revoke all access tokens for the account",
         "tags": [
           "auth"
         ]
@@ -260,7 +608,16 @@
     "/me": {
       "get": {
         "operationId": "MeController_getMe",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
@@ -280,7 +637,16 @@
     "/profile": {
       "put": {
         "operationId": "MeController_updateProfile",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -310,7 +676,16 @@
     "/profile/photo": {
       "post": {
         "operationId": "MeController_uploadOwnPhoto",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -349,7 +724,16 @@
     "/card": {
       "get": {
         "operationId": "MeController_getCard",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
@@ -399,7 +783,16 @@
     "/cards": {
       "get": {
         "operationId": "MeController_getCards",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
@@ -419,7 +812,16 @@
     "/card/primary": {
       "put": {
         "operationId": "MeController_setPrimary",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -455,6 +857,14 @@
             "name": "cardId",
             "required": true,
             "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
             "schema": {
               "type": "string"
             }
@@ -515,7 +925,16 @@
     "/admin/journalists": {
       "get": {
         "operationId": "JournalistsController_findAll",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
@@ -533,7 +952,16 @@
       },
       "post": {
         "operationId": "JournalistsController_create",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -563,7 +991,16 @@
     "/admin/journalists/attach": {
       "post": {
         "operationId": "JournalistsController_attach",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -600,6 +1037,14 @@
             "in": "path",
             "schema": {
               "type": "number"
+            }
+          },
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -667,6 +1112,14 @@
             "schema": {
               "type": "number"
             }
+          },
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -695,6 +1148,14 @@
             "in": "path",
             "schema": {
               "type": "number"
+            }
+          },
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -736,7 +1197,16 @@
     "/admin/cards": {
       "get": {
         "operationId": "CardsController_findAll",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
@@ -754,7 +1224,16 @@
       },
       "post": {
         "operationId": "CardsController_create",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -792,6 +1271,14 @@
             "schema": {
               "type": "number"
             }
+          },
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -820,6 +1307,14 @@
             "in": "path",
             "schema": {
               "type": "number"
+            }
+          },
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -879,7 +1374,16 @@
     "/admin/cards/block": {
       "post": {
         "operationId": "CardsController_block",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -909,7 +1413,16 @@
     "/admin/cards/renew": {
       "post": {
         "operationId": "CardsController_renew",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -986,6 +1499,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1015,6 +1536,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1036,7 +1565,16 @@
     "/admin/editorials": {
       "get": {
         "operationId": "EditorialsController_findAll",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
@@ -1054,7 +1592,16 @@
       },
       "post": {
         "operationId": "EditorialsController_create",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -1091,6 +1638,14 @@
             "in": "path",
             "schema": {
               "type": "number"
+            }
+          },
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -1158,6 +1713,14 @@
             "schema": {
               "type": "number"
             }
+          },
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -1189,7 +1752,7 @@
             "bearer": []
           }
         ],
-        "summary": "Upload the company logo (SVG/PNG/WebP/JPEG, ≤2 MB)",
+        "summary": "Upload the company logo (PNG/WebP/JPEG, ≤2 MB)",
         "tags": [
           "admin/editorials"
         ]
@@ -1216,7 +1779,16 @@
       },
       "post": {
         "operationId": "AdminsController_create",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-unlock-token",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -1438,6 +2010,22 @@
             "example": "PressPass <no-reply@domain.ua>"
           }
         }
+      },
+      "EncryptionPassphraseDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "RecoverySlotsDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ChangeEncryptionPassphraseDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "RecoverOwnerDto": {
+        "type": "object",
+        "properties": {}
       },
       "LoginDto": {
         "type": "object",
@@ -1926,6 +2514,11 @@
             "example": "Str0ng_Password!",
             "minLength": 8
           },
+          "encryptionPassphrase": {
+            "type": "string",
+            "minLength": 12,
+            "description": "Distinct passphrase wrapping the administrator KEK"
+          },
           "role": {
             "type": "string",
             "enum": [
@@ -1942,7 +2535,8 @@
         },
         "required": [
           "email",
-          "password"
+          "password",
+          "encryptionPassphrase"
         ]
       },
       "CreatePositionDto": {

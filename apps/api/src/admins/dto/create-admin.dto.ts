@@ -22,6 +22,12 @@ export class CreateAdminDto {
   @MaxLength(128)
   password!: string;
 
+  @ApiProperty({ minLength: 12, description: 'Distinct passphrase wrapping the administrator KEK' })
+  @IsString()
+  @MinLength(12)
+  @MaxLength(256)
+  encryptionPassphrase!: string;
+
   @ApiPropertyOptional({ enum: ['ADMIN', 'EDITORIAL_ADMIN'], default: 'EDITORIAL_ADMIN' })
   @IsOptional()
   @IsIn(['ADMIN', 'EDITORIAL_ADMIN'])

@@ -1,14 +1,17 @@
 import { DataEncryptionService } from './data-encryption.service';
 import { UserKeyMaterialService } from './user-key-material.service';
+import { ProtectedDataService } from './protected-data.service';
 import { ConfigService } from '@nestjs/config';
 
 describe('UserKeyMaterialService', () => {
   let service: UserKeyMaterialService;
 
   beforeEach(() => {
+    const encryption = new DataEncryptionService();
     service = new UserKeyMaterialService(
-      new DataEncryptionService(),
+      encryption,
       new ConfigService({ DATA_KEY_SECRET: 'test-secret-that-is-at-least-32-bytes-long' }),
+      new ProtectedDataService(encryption),
     );
   });
 
@@ -72,31 +75,12 @@ describe('UserKeyMaterialService', () => {
     rewrappedDataKey.fill(0);
   });
 
-  it('recovers the same data key for an administrative password reset', async () => {
-    const original = await service.provision(17, 'old-password');
-    const before = await service.unlock(
-      17,
-      'old-password',
-      original.passwordKdf,
-      original.dataKeyEnvelope,
-    );
-
-    const reset = await service.resetWithRecovery(
-      17,
-      'replacement-password',
-      original.recoveryKeyEnvelope,
-    );
-    const after = await service.unlock(
-      17,
-      'replacement-password',
-      reset.passwordKdf,
-      reset.dataKeyEnvelope,
-    );
-
-    expect(after).toEqual(before);
-    expect(reset.recoveryKeyEnvelope).toEqual(original.recoveryKeyEnvelope);
-    before.fill(0);
-    after.fill(0);
+  it('does not persist the legacy server recovery envelope for newly provisioned owners', async () => {
+    const material = await service.provision(22, 'owner-password');
+    expect(material.recoveryKeyEnvelope).toBeUndefined();
+    await expect(
+      service.unlock(22, 'owner-password', material.passwordKdf, material.dataKeyEnvelope),
+    ).resolves.toHaveLength(32);
   });
 
   it('rejects malformed persisted JSON', async () => {

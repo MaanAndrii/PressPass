@@ -1,0 +1,18 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2022",
+    "baseUrl": "..",
+    "paths": {
+      "@presspass/shared": ["packages/shared/src/index.ts"]
+    },
+    "types": ["node"],
+    "noEmit": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
+  },
+  "include": ["./*.ts", "../apps/api/src/crypto/**/*.ts", "../apps/api/src/prisma/**/*.ts"],
+  "exclude": ["../apps/api/src/**/*.spec.ts"]
+}

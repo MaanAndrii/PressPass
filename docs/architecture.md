@@ -38,7 +38,7 @@ npm workspaces:
 - `JwtAuthGuard` — глобальний guard; публічні маршрути позначаються `@Public()` (`/auth/login`, `/verify/:uuid`).
 - `RolesGuard` + `@Roles(...)` — доступ до `/admin/*`. JWT містить `role` та (для редакційного адміна) `editorialId`.
 - **Два рівні адміністрування**: `ADMIN` — системний адміністратор (усе + керування адміністраторами); `EDITORIAL_ADMIN` — прив'язаний до `editorial_id`. Спільні ендпоінти дозволені обом ролям, а **обмеження за редакцією накладає сервіс**: редакційний адмін бачить/змінює лише картки й профіль своєї редакції, а `editorialId` при видачі підставляється з токена (не з тіла запиту). Створення/видалення редакцій і адміністраторів, дизайн і налаштування — лише `ADMIN`.
-- Logout — stateless (клієнт видаляє токен); ендпоінт існує для симетрії API та майбутнього відкликання токенів (v2).
+- Logout збільшує `tokenVersion`, відкликає JWT і знищує in-memory unlock sessions.
 
 ## Посвідчення та статуси
 
@@ -76,7 +76,7 @@ QR містить лише URL: `{VERIFY_BASE_URL}/verify/{uuid}?t={токен}`
 
 ## Фото
 
-Файли зберігаються в `uploads/photos/` (диск), у БД — лише `photo_path`. API віддає їх статично за `/uploads/...`. Завантаження: multipart `POST /admin/journalists/:id/photo`, дозволені JPEG/PNG/WebP до 5 МБ; ім'я файлу — випадковий UUID (оригінальна назва не використовується).
+Файли приймаються в RAM, перевіряються за magic bytes і шифруються випадковим File DEK у `uploads/encrypted/`; File DEK wrapped owner key. Direct static access відсутній, читання виконується authorization-aware `/media/:id` або короткоживучою QR capability.
 
 ## Безпека
 
@@ -102,6 +102,6 @@ QR містить лише URL: `{VERIFY_BASE_URL}/verify/{uuid}?t={токен}`
 Nginx (HTTPS, статика, проксі)
  ├── /            → Next.js (web)
  ├── /api/*       → NestJS (api)   (або окремий піддомен)
- └── /uploads/*   → каталог uploads/
+ └── /api/media/* → авторизоване розшифрування файлів
 PostgreSQL — локальний інстанс
 ```

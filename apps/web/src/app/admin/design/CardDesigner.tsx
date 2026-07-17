@@ -714,7 +714,7 @@ export function CardDesigner() {
                     <span className="text-xs text-slate-500">Шлях до зображення</span>
                     <input
                       value={selected.src ?? ''}
-                      placeholder="/uploads/branding/…"
+                      placeholder="/icons/logo.svg"
                       onChange={(e) => updateElement(selected.id, { src: e.target.value })}
                       className="rounded-lg border border-slate-300 px-2 py-1"
                     />

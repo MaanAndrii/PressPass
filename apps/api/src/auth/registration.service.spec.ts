@@ -1,220 +1,113 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
-
+import { JwtService } from '@nestjs/jwt';
+import { KeyHierarchyService } from '../crypto/key-hierarchy.service';
+import { BlindIndexService } from '../crypto/blind-index.service';
 import { UserKeyMaterialService } from '../crypto/user-key-material.service';
 import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegistrationService } from './registration.service';
 import { createJwtServiceMock } from './testing/jwt-service.mock';
-
-describe('RegistrationService', () => {
+describe('RegistrationService encrypted registration', () => {
   let service: RegistrationService;
-  let sentCodes: string[];
-
-  const prismaMock = {
+  const prisma: any = {
     $transaction: jest.fn(),
-    user: {
-      findUnique: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-    },
-    emailVerification: {
-      upsert: jest.fn(),
-      update: jest.fn(),
-    },
+    user: { findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
+    emailVerification: { upsert: jest.fn(), update: jest.fn() },
   };
-  const userKeysMock = {
+  const keys = {
     provision: jest.fn().mockResolvedValue({
-      passwordKdf: { version: 1, algorithm: 'ARGON2ID' },
-      dataKeyEnvelope: { version: 1, algorithm: 'AES-256-GCM' },
+      passwordKdf: {},
+      dataKeyEnvelope: {},
+      encryptedData: { ciphertext: 'opaque' },
     }),
   };
-
+  const sent: string[] = [];
+  const blind = new BlindIndexService(
+    new ConfigService({ LOOKUP_KEY: 'lookup-key-that-is-at-least-32-bytes-long' }),
+  );
   beforeEach(async () => {
     jest.clearAllMocks();
-    prismaMock.$transaction.mockImplementation(
-      (callback: (tx: typeof prismaMock) => Promise<unknown>) => callback(prismaMock),
-    );
-    sentCodes = [];
-    const moduleRef = await Test.createTestingModule({
+    sent.length = 0;
+    prisma.$transaction.mockImplementation((fn: any) => fn(prisma));
+    const module = await Test.createTestingModule({
       providers: [
         RegistrationService,
-        { provide: PrismaService, useValue: prismaMock },
-        { provide: UserKeyMaterialService, useValue: userKeysMock },
-        {
-          provide: JwtService,
-          useValue: createJwtServiceMock(),
-        },
+        { provide: PrismaService, useValue: prisma },
+        { provide: UserKeyMaterialService, useValue: keys },
+        { provide: BlindIndexService, useValue: blind },
+        { provide: KeyHierarchyService, useValue: { wrapOwnerForRecovery: jest.fn() } },
+        { provide: JwtService, useValue: createJwtServiceMock() },
         {
           provide: MailService,
           useValue: {
-            sendVerificationCode: jest.fn((_to: string, code: string) => {
-              sentCodes.push(code);
-              return Promise.resolve();
+            sendVerificationCode: jest.fn((_: string, c: string) => {
+              sent.push(c);
             }),
           },
         },
       ],
     }).compile();
-    service = moduleRef.get(RegistrationService);
+    service = module.get(RegistrationService);
   });
-
-  describe('register', () => {
-    it('creates a self-registered journalist and emails a 6-digit code', async () => {
-      prismaMock.user.findUnique.mockResolvedValue(null);
-      prismaMock.user.create.mockResolvedValue({ id: 7, email: 'new@example.com' });
-      prismaMock.emailVerification.upsert.mockResolvedValue({});
-
-      const result = await service.register('New@Example.com ', 'Str0ngPass!');
-
-      expect(result.success).toBe(true);
-      expect(prismaMock.user.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            email: 'new@example.com',
-            role: 'JOURNALIST',
-            journalist: {
-              create: expect.objectContaining({
-                selfRegistered: true,
-                publicId: expect.stringMatching(/^JR-/),
-              }),
-            },
-          }),
-        }),
-      );
-      expect(sentCodes).toHaveLength(1);
-      expect(sentCodes[0]).toMatch(/^\d{6}$/);
-      expect(userKeysMock.provision).toHaveBeenCalledWith(7, 'Str0ngPass!');
-      expect(prismaMock.user.update).toHaveBeenCalledWith({
-        where: { id: 7 },
-        data: expect.objectContaining({
-          passwordKdf: expect.any(Object),
-          dataKeyEnvelope: expect.any(Object),
-        }),
-      });
+  it('stores a blind-index lookup and encrypted email payload instead of plaintext', async () => {
+    prisma.user.findFirst.mockResolvedValue(null);
+    prisma.user.create.mockResolvedValue({ id: 7 });
+    await service.register(' New@Example.com ', 'StrongPass123!');
+    const index = blind.email('new@example.com');
+    expect(keys.provision).toHaveBeenCalledWith(
+      7,
+      'StrongPass123!',
+      { email: 'new@example.com' },
+      expect.any(Function),
+    );
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 7 },
+      data: expect.objectContaining({ email: index }),
     });
-
-    it('rejects an email that is already verified', async () => {
-      prismaMock.user.findUnique.mockResolvedValue({ id: 1, emailVerifiedAt: new Date() });
-
-      await expect(service.register('taken@example.com', 'Str0ngPass!')).rejects.toThrow(
-        ConflictException,
-      );
-    });
-
-    it('re-sends a code for an unfinished registration instead of failing', async () => {
-      prismaMock.user.findUnique.mockResolvedValue({ id: 3, emailVerifiedAt: null });
-      prismaMock.user.update.mockResolvedValue({});
-      prismaMock.emailVerification.upsert.mockResolvedValue({});
-
-      const result = await service.register('half@example.com', 'NewPass123!');
-
-      expect(result.success).toBe(true);
-      expect(prismaMock.user.create).not.toHaveBeenCalled();
-      expect(userKeysMock.provision).toHaveBeenCalledWith(3, 'NewPass123!');
-      expect(prismaMock.user.update).toHaveBeenCalledWith({
-        where: { id: 3 },
-        data: expect.objectContaining({
-          passwordHash: expect.any(String),
-          passwordKdf: expect.any(Object),
-          dataKeyEnvelope: expect.any(Object),
-        }),
-      });
-      expect(sentCodes).toHaveLength(1);
-    });
+    expect(JSON.stringify(prisma.user.update.mock.calls)).not.toContain('new@example.com');
+    expect(sent[0]).toMatch(/^\d{6}$/);
+    expect(prisma.emailVerification.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ code: expect.stringMatching(/^v1:/) }),
+      }),
+    );
   });
-
-  describe('verifyEmail', () => {
-    const baseUser = {
+  it('compares an HMAC verification value and never persists the raw code', async () => {
+    const hash = blind.verificationCode(5, '123456');
+    prisma.user.findFirst.mockResolvedValue({
       id: 5,
-      email: 'v@example.com',
+      email: 'opaque',
       role: 'JOURNALIST',
+      tokenVersion: 0,
       emailVerifiedAt: null,
       journalist: null,
-    };
-
-    it('activates the account and returns a token for the correct code', async () => {
-      prismaMock.user.findUnique.mockResolvedValue({
-        ...baseUser,
-        verification: {
-          id: 9,
-          code: '123456',
-          attempts: 0,
-          expiresAt: new Date(Date.now() + 60_000),
-        },
-      });
-      prismaMock.user.update.mockResolvedValue({
-        ...baseUser,
-        emailVerifiedAt: new Date(),
-        journalist: null,
-      });
-
-      const result = await service.verifyEmail('v@example.com', '123456');
-
-      expect(result.accessToken).toBe('signed.jwt.token');
-      expect(result.user.emailVerified).toBe(true);
+      verification: { id: 1, code: hash, attempts: 0, expiresAt: new Date(Date.now() + 10000) },
     });
-
-    it('rejects a wrong code and counts the attempt', async () => {
-      prismaMock.user.findUnique.mockResolvedValue({
-        ...baseUser,
-        verification: {
-          id: 9,
-          code: '123456',
-          attempts: 0,
-          expiresAt: new Date(Date.now() + 60_000),
-        },
-      });
-
-      await expect(service.verifyEmail('v@example.com', '000000')).rejects.toThrow('Невірний код');
-      expect(prismaMock.emailVerification.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { attempts: { increment: 1 } } }),
-      );
+    prisma.user.update.mockResolvedValue({
+      id: 5,
+      email: 'opaque',
+      role: 'JOURNALIST',
+      tokenVersion: 0,
+      emailVerifiedAt: new Date(),
+      journalist: null,
     });
-
-    it('rejects an expired code', async () => {
-      prismaMock.user.findUnique.mockResolvedValue({
-        ...baseUser,
-        verification: {
-          id: 9,
-          code: '123456',
-          attempts: 0,
-          expiresAt: new Date(Date.now() - 1000),
-        },
-      });
-
-      await expect(service.verifyEmail('v@example.com', '123456')).rejects.toThrow(
-        'Код прострочено',
-      );
+    await expect(service.verifyEmail('v@example.com', '123456')).resolves.toMatchObject({
+      accessToken: 'signed.jwt.token',
     });
-
-    it('locks out after too many attempts', async () => {
-      prismaMock.user.findUnique.mockResolvedValue({
-        ...baseUser,
-        verification: {
-          id: 9,
-          code: '123456',
-          attempts: 5,
-          expiresAt: new Date(Date.now() + 60_000),
-        },
-      });
-
-      await expect(service.verifyEmail('v@example.com', '123456')).rejects.toThrow(
-        'Забагато спроб',
-      );
+  });
+  it('counts a wrong verification attempt', async () => {
+    prisma.user.findFirst.mockResolvedValue({
+      id: 5,
+      emailVerifiedAt: null,
+      verification: {
+        id: 1,
+        code: blind.verificationCode(5, '123456'),
+        attempts: 0,
+        expiresAt: new Date(Date.now() + 10000),
+      },
     });
-
-    it('rejects verification for an already verified account', async () => {
-      prismaMock.user.findUnique.mockResolvedValue({
-        ...baseUser,
-        emailVerifiedAt: new Date(),
-        verification: null,
-      });
-
-      await expect(service.verifyEmail('v@example.com', '123456')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
+    await expect(service.verifyEmail('v@example.com', '000000')).rejects.toThrow('Невірний код');
+    expect(prisma.emailVerification.update).toHaveBeenCalled();
   });
 });

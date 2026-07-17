@@ -1,12 +1,11 @@
 'use client';
 
 import { Button, Field } from '@presspass/ui';
-import type { LoginResponse, RegisterResponse } from '@presspass/shared';
+import type { RegisterResponse } from '@presspass/shared';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { type FormEvent, Suspense, useState } from 'react';
 
 import { api, ApiError } from '@/lib/api';
-import { saveSession } from '@/lib/auth';
 
 function ConfirmForm() {
   const router = useRouter();
@@ -23,14 +22,12 @@ function ConfirmForm() {
     setInfo(null);
     setLoading(true);
     try {
-      const result = await api<LoginResponse>('/auth/verify-email', {
+      await api<unknown>('/auth/verify-email', {
         method: 'POST',
         body: { email, code },
         auth: false,
       });
-      saveSession(result.accessToken, result.user);
-      // Після підтвердження — одразу до анкети.
-      router.replace('/profile');
+      router.replace(`/login?email=${encodeURIComponent(email)}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не вдалося підтвердити код.');
     } finally {

@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   Param,
   ParseIntPipe,
   Post,
@@ -19,6 +20,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import type { JwtPayload } from '../auth/auth.types';
 import { logoMulterOptions } from '../common/branding-upload';
+import { assertImageBytes } from '../common/secure-image';
 import { CreateEditorialDto } from './dto/create-editorial.dto';
 import { UpdateEditorialDto } from './dto/update-editorial.dto';
 import { EditorialsService } from './editorials.service';
@@ -32,15 +34,22 @@ export class EditorialsController {
 
   @Get()
   @ApiOperation({ summary: 'List issuing companies (editorial admins: their own only)' })
-  findAll(@CurrentUser() user: JwtPayload): Promise<Editorial[]> {
-    return this.editorials.findAll(user);
+  findAll(
+    @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
+  ): Promise<Editorial[]> {
+    return this.editorials.findAll(user, unlock);
   }
 
   @Post()
   @Roles('ADMIN')
   @ApiOperation({ summary: 'Create an issuing company (system admin only)' })
-  create(@Body() dto: CreateEditorialDto): Promise<Editorial> {
-    return this.editorials.create(dto);
+  create(
+    @Body() dto: CreateEditorialDto,
+    @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
+  ): Promise<Editorial> {
+    return this.editorials.create(dto, user, unlock);
   }
 
   @Put(':id')
@@ -49,8 +58,9 @@ export class EditorialsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateEditorialDto,
     @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
   ): Promise<Editorial> {
-    return this.editorials.update(id, dto, user);
+    return this.editorials.update(id, dto, user, unlock);
   }
 
   @Delete(':id')
@@ -61,7 +71,7 @@ export class EditorialsController {
   }
 
   @Post(':id/logo')
-  @ApiOperation({ summary: 'Upload the company logo (SVG/PNG/WebP/JPEG, ≤2 MB)' })
+  @ApiOperation({ summary: 'Upload the company logo (PNG/WebP/JPEG, ≤2 MB)' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -75,10 +85,12 @@ export class EditorialsController {
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: JwtPayload,
     @UploadedFile() file?: Express.Multer.File,
+    @Headers('x-unlock-token') unlock?: string,
   ): Promise<Editorial> {
     if (!file) {
       throw new BadRequestException('Logo file is required (multipart field "logo")');
     }
-    return this.editorials.setLogo(id, `/uploads/branding/${file.filename}`, user);
+    assertImageBytes(file.buffer, file.mimetype);
+    return this.editorials.setLogo(id, file.buffer, file.mimetype, user, unlock);
   }
 }

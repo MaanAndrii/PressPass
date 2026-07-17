@@ -12,6 +12,8 @@ import { randomInt } from 'crypto';
 import { mapJournalist } from '../common/journalist.mapper';
 import { generateJournalistPublicId } from '../common/public-id';
 import { UserKeyMaterialService } from '../crypto/user-key-material.service';
+import { BlindIndexService } from '../crypto/blind-index.service';
+import { KeyHierarchyService } from '../crypto/key-hierarchy.service';
 import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { JwtPayload } from './auth.types';
@@ -34,13 +36,17 @@ export class RegistrationService {
     private readonly jwtService: JwtService,
     private readonly mail: MailService,
     private readonly userKeys: UserKeyMaterialService,
+    private readonly blindIndexes: BlindIndexService,
+    private readonly hierarchy: KeyHierarchyService,
   ) {}
 
   async register(rawEmail: string, password: string): Promise<RegisterResponse> {
-    const email = rawEmail.toLowerCase().trim();
+    const email = this.blindIndexes.normalizeEmail(rawEmail);
     const passwordHash = await argon2.hash(password);
 
-    const existing = await this.prisma.user.findUnique({ where: { email } });
+    const existing = await this.prisma.user.findFirst({
+      where: { OR: [{ emailBlindIndex: this.blindIndexes.email(email) }, { email }] },
+    });
     if (existing?.emailVerifiedAt) {
       // Точніше повідомлення: адмінський акаунт не показується у списку
       // журналістів, тож інакше «користувача не видно» збиває з пантелику.
@@ -53,10 +59,17 @@ export class RegistrationService {
 
     if (existing) {
       // Незавершена реєстрація: оновлюємо пароль і надсилаємо новий код.
-      const keyMaterial = await this.userKeys.provision(existing.id, password);
+      const keyMaterial = await this.userKeys.provision(existing.id, password, { email }, (key) =>
+        this.hierarchy.wrapOwnerForRecovery('user', String(existing.id), key),
+      );
       await this.prisma.user.update({
         where: { id: existing.id },
-        data: { passwordHash, ...keyMaterial },
+        data: {
+          email: this.blindIndexes.email(email),
+          emailBlindIndex: this.blindIndexes.email(email),
+          passwordHash,
+          ...keyMaterial,
+        },
       });
       await this.issueCode(existing.id, email);
       return { success: true, message: 'Новий код підтвердження надіслано на вашу пошту' };
@@ -65,14 +78,20 @@ export class RegistrationService {
     const user = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: {
-          email,
+          email: this.blindIndexes.email(email),
+          emailBlindIndex: this.blindIndexes.email(email),
           passwordHash,
           role: 'JOURNALIST',
           journalist: { create: { selfRegistered: true, publicId: generateJournalistPublicId() } },
         },
       });
-      const keyMaterial = await this.userKeys.provision(created.id, password);
-      await tx.user.update({ where: { id: created.id }, data: keyMaterial });
+      const keyMaterial = await this.userKeys.provision(created.id, password, { email }, (key) =>
+        this.hierarchy.wrapOwnerForRecovery('user', String(created.id), key, tx),
+      );
+      await tx.user.update({
+        where: { id: created.id },
+        data: { ...keyMaterial, email: this.blindIndexes.email(email) },
+      });
       return created;
     });
     await this.issueCode(user.id, email);
@@ -80,9 +99,9 @@ export class RegistrationService {
   }
 
   async verifyEmail(rawEmail: string, code: string): Promise<LoginResponse> {
-    const email = rawEmail.toLowerCase().trim();
-    const user = await this.prisma.user.findUnique({
-      where: { email },
+    const email = this.blindIndexes.normalizeEmail(rawEmail);
+    const user = await this.prisma.user.findFirst({
+      where: { OR: [{ emailBlindIndex: this.blindIndexes.email(email) }, { email }] },
       include: { verification: true, journalist: true },
     });
     if (!user) {
@@ -98,7 +117,7 @@ export class RegistrationService {
     if (verification.attempts >= MAX_ATTEMPTS) {
       throw new BadRequestException('Забагато спроб — надішліть новий код');
     }
-    if (verification.code !== code) {
+    if (verification.code !== this.blindIndexes.verificationCode(user.id, code)) {
       await this.prisma.emailVerification.update({
         where: { id: verification.id },
         data: { attempts: { increment: 1 } },
@@ -135,8 +154,10 @@ export class RegistrationService {
   }
 
   async resendCode(rawEmail: string): Promise<RegisterResponse> {
-    const email = rawEmail.toLowerCase().trim();
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const email = this.blindIndexes.normalizeEmail(rawEmail);
+    const user = await this.prisma.user.findFirst({
+      where: { OR: [{ emailBlindIndex: this.blindIndexes.email(email) }, { email }] },
+    });
     if (!user) {
       throw new NotFoundException('Користувача не знайдено');
     }
@@ -152,8 +173,16 @@ export class RegistrationService {
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
     await this.prisma.emailVerification.upsert({
       where: { userId },
-      update: { code, expiresAt: new Date(Date.now() + CODE_TTL_MS), attempts: 0 },
-      create: { userId, code, expiresAt: new Date(Date.now() + CODE_TTL_MS) },
+      update: {
+        code: this.blindIndexes.verificationCode(userId, code),
+        expiresAt: new Date(Date.now() + CODE_TTL_MS),
+        attempts: 0,
+      },
+      create: {
+        userId,
+        code: this.blindIndexes.verificationCode(userId, code),
+        expiresAt: new Date(Date.now() + CODE_TTL_MS),
+      },
     });
     await this.mail.sendVerificationCode(email, code);
   }

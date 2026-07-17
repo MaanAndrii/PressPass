@@ -19,6 +19,7 @@ export default function AdminAdminsPage() {
   const [form, setForm] = useState({
     email: '',
     password: '',
+    encryptionPassphrase: '',
     role: 'EDITORIAL_ADMIN' as 'ADMIN' | 'EDITORIAL_ADMIN',
     editorialId: '',
   });
@@ -52,11 +53,18 @@ export default function AdminAdminsPage() {
         body: {
           email: form.email.trim(),
           password: form.password,
+          encryptionPassphrase: form.encryptionPassphrase,
           role: form.role,
           ...(form.role === 'EDITORIAL_ADMIN' ? { editorialId: Number(form.editorialId) } : {}),
         },
       });
-      setForm({ email: '', password: '', role: 'EDITORIAL_ADMIN', editorialId: '' });
+      setForm({
+        email: '',
+        password: '',
+        encryptionPassphrase: '',
+        role: 'EDITORIAL_ADMIN',
+        editorialId: '',
+      });
       setSaved(true);
       await reload();
     } catch (err) {
@@ -148,6 +156,15 @@ export default function AdminAdminsPage() {
           autoComplete="new-password"
           value={form.password}
           onChange={(e) => setForm({ ...form, password: e.target.value })}
+        />
+        <Field
+          label="Окрема криптографічна фраза"
+          type="password"
+          required
+          minLength={12}
+          autoComplete="off"
+          value={form.encryptionPassphrase}
+          onChange={(e) => setForm({ ...form, encryptionPassphrase: e.target.value })}
         />
         {form.role === 'EDITORIAL_ADMIN' && (
           <label className="block">
