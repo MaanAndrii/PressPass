@@ -27,6 +27,10 @@ enum CardStatus {
 model User {
   id                  Int                     @id @default(autoincrement())
   email               String                  @unique
+  // Transitional expand/backfill fields. `email` is removed by the contract
+  // migration only after every installation has a verified encrypted payload.
+  emailBlindIndex     String?                 @unique @map("email_blind_index")
+  encryptedData       Json?                   @map("encrypted_data")
   passwordHash        String?                 @map("password_hash")
   // Password-derived key metadata and the user's wrapped profile data key.
   // Both are JSON envelopes; no raw encryption key is persisted.
@@ -37,6 +41,7 @@ model User {
   role                Role                    @default(JOURNALIST)
   emailVerifiedAt     DateTime?               @map("email_verified_at")
   googleId            String?                 @unique @map("google_id")
+  googleIdBlindIndex  String?                 @unique @map("google_id_blind_index")
   // For an EDITORIAL_ADMIN, the editorial they administer (else NULL).
   editorialId         Int?                    @map("editorial_id")
   editorial           Editorial?              @relation(fields: [editorialId], references: [id], onDelete: SetNull)
@@ -45,6 +50,9 @@ model User {
   journalist          Journalist?
   verification        EmailVerification?
   editorialKeyGrants  EditorialDataKeyGrant[]
+  adminKeyMaterial    AdminKeyMaterial?
+  superadminKeySlots  SuperadminKeySlot[]     @relation("SuperadminSlotOwner")
+  recoveryAuthorities SuperadminRecoveryKey[] @relation("SuperadminRecoveryOwner")
 
   @@index([editorialId])
   @@map("users")
@@ -106,6 +114,7 @@ model Journalist {
   // Основне посвідчення, вибране журналістом (коли їх кілька від різних редакцій).
   primaryCardId  Int?                  @map("primary_card_id")
   selfRegistered Boolean               @default(false) @map("self_registered")
+  encryptedData  Json?                 @map("encrypted_data")
   createdAt      DateTime              @default(now()) @map("created_at")
   updatedAt      DateTime              @updatedAt @map("updated_at")
   cards          Card[]
@@ -128,13 +137,14 @@ model Position {
 /// JSON, so the credential's appearance can be changed from the admin panel
 /// without redeploying. See packages/shared CardTemplate.
 model CardTemplate {
-  id          Int        @id @default(autoincrement())
+  id            Int        @id @default(autoincrement())
   // Editorial this design belongs to; NULL is the system-wide default that
   // editorials inherit when they have no own template.
-  editorialId Int?       @unique @map("editorial_id")
-  editorial   Editorial? @relation(fields: [editorialId], references: [id], onDelete: Cascade)
-  data        Json
-  updatedAt   DateTime   @updatedAt @map("updated_at")
+  editorialId   Int?       @unique @map("editorial_id")
+  editorial     Editorial? @relation(fields: [editorialId], references: [id], onDelete: Cascade)
+  data          Json
+  encryptedData Json?      @map("encrypted_data")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
 
   @@map("card_templates")
 }
@@ -148,6 +158,7 @@ model AppSetting {
   mailFrom      String?  @map("mail_from")
   // Uploaded NSZHU logo path, shown on cards of union members.
   nszhuLogoPath String?  @map("nszhu_logo_path")
+  encryptedData Json?    @map("encrypted_data")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   @@map("app_settings")
@@ -157,29 +168,33 @@ model AppSetting {
 /// behalf of one, and the card/verify page show its name, logo and the public
 /// registry link. Only `name` is required; the rest are optional details.
 model Editorial {
-  id                 Int                     @id @default(autoincrement())
-  name               String
-  displayNameUk      String                  @default("") @map("display_name_uk")
-  displayNameEn      String                  @default("") @map("display_name_en")
+  id                         Int                     @id @default(autoincrement())
+  name                       String
+  displayNameUk              String                  @default("") @map("display_name_uk")
+  displayNameEn              String                  @default("") @map("display_name_en")
   // Державний ідентифікатор медіа, напр. R40-02551 (маска ***-*****).
-  mediaId            String                  @default("") @map("media_id")
+  mediaId                    String                  @default("") @map("media_id")
   // Нумерація посвідчень цієї редакції: унікальний префікс + шаблон із токенів.
-  cardNumberPrefix   String                  @default("") @map("card_number_prefix")
-  cardNumberTemplate String                  @default("{prefix}-{year}-{seq:6}") @map("card_number_template")
-  edrpou             String                  @default("")
-  website            String                  @default("")
-  logoPath           String?                 @map("logo_path")
-  director           String                  @default("")
-  email              String                  @default("")
-  address            String                  @default("")
-  phone              String                  @default("")
-  createdAt          DateTime                @default(now()) @map("created_at")
-  updatedAt          DateTime                @updatedAt @map("updated_at")
-  cards              Card[]
-  admins             User[]
-  cardTemplate       CardTemplate?
-  members            EditorialMembership[]
-  dataKeyGrants      EditorialDataKeyGrant[]
+  cardNumberPrefix           String                  @default("") @map("card_number_prefix")
+  cardNumberTemplate         String                  @default("{prefix}-{year}-{seq:6}") @map("card_number_template")
+  edrpou                     String                  @default("")
+  website                    String                  @default("")
+  logoPath                   String?                 @map("logo_path")
+  director                   String                  @default("")
+  email                      String                  @default("")
+  address                    String                  @default("")
+  phone                      String                  @default("")
+  createdAt                  DateTime                @default(now()) @map("created_at")
+  updatedAt                  DateTime                @updatedAt @map("updated_at")
+  cards                      Card[]
+  admins                     User[]
+  cardTemplate               CardTemplate?
+  members                    EditorialMembership[]
+  dataKeyGrants              EditorialDataKeyGrant[]
+  encryptedData              Json?                   @map("encrypted_data")
+  cardNumberPrefixBlindIndex String?                 @unique @map("card_number_prefix_blind_index")
+  keyMaterial                EditorialKeyMaterial?
+  encryptedFiles             EncryptedFile[]
 
   @@map("editorials")
 }
@@ -202,25 +217,160 @@ model EditorialMembership {
 
 /// Press credential. `uuid` (UUIDv7) is the only identifier exposed in QR codes.
 model Card {
-  id           Int        @id @default(autoincrement())
-  uuid         String     @unique @db.Uuid
-  journalistId Int        @map("journalist_id")
-  journalist   Journalist @relation(fields: [journalistId], references: [id], onDelete: Cascade)
-  editorialId  Int?       @map("editorial_id")
-  editorial    Editorial? @relation(fields: [editorialId], references: [id], onDelete: SetNull)
+  id                   Int        @id @default(autoincrement())
+  uuid                 String     @unique @db.Uuid
+  journalistId         Int        @map("journalist_id")
+  journalist           Journalist @relation(fields: [journalistId], references: [id], onDelete: Cascade)
+  editorialId          Int?       @map("editorial_id")
+  editorial            Editorial? @relation(fields: [editorialId], references: [id], onDelete: SetNull)
   // Position on this card, set by the issuing editorial (both languages).
-  position     String     @default("")
-  positionEn   String     @default("") @map("position_en")
-  cardNumber   String     @unique @map("card_number")
+  position             String     @default("")
+  positionEn           String     @default("") @map("position_en")
+  cardNumber           String     @unique @map("card_number")
   // Per-editorial, per-year sequence used to build cardNumber (0 for legacy).
-  numberSeq    Int        @default(0) @map("number_seq")
-  issueDate    DateTime   @map("issue_date") @db.Date
-  expireDate   DateTime   @map("expire_date") @db.Date
-  status       CardStatus @default(ACTIVE)
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
+  numberSeq            Int        @default(0) @map("number_seq")
+  issueDate            DateTime?  @map("issue_date") @db.Date
+  expireDate           DateTime?  @map("expire_date") @db.Date
+  status               CardStatus @default(ACTIVE)
+  encryptedData        Json?      @map("encrypted_data")
+  cardNumberBlindIndex String?    @unique @map("card_number_blind_index")
+  createdAt            DateTime   @default(now()) @map("created_at")
+  updatedAt            DateTime   @updatedAt @map("updated_at")
 
   @@index([journalistId])
   @@index([editorialId])
   @@map("cards")
+}
+
+/// A random administrator KEK wrapped by a key derived from the administrator's
+/// distinct encryption passphrase. No raw administrator key is persisted.
+model AdminKeyMaterial {
+  id             Int                     @id @default(autoincrement())
+  userId         Int                     @unique @map("user_id")
+  user           User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keyVersion     Int                     @default(1) @map("key_version")
+  passphraseKdf  Json                    @map("passphrase_kdf")
+  keyEnvelope    Json                    @map("key_envelope")
+  fingerprint    String                  @unique
+  createdAt      DateTime                @default(now()) @map("created_at")
+  revokedAt      DateTime?               @map("revoked_at")
+  editorialSlots EditorialAdminKeySlot[]
+  systemSlots    SystemAdminKeySlot[]
+
+  @@map("admin_key_material")
+}
+
+/// Random KEK protecting global settings and the default card template.
+model SystemKeyMaterial {
+  id          Int                  @id @default(1)
+  keyVersion  Int                  @default(1) @map("key_version")
+  fingerprint String               @unique
+  createdAt   DateTime             @default(now()) @map("created_at")
+  rotatedAt   DateTime?            @map("rotated_at")
+  adminSlots  SystemAdminKeySlot[]
+
+  @@map("system_key_material")
+}
+
+model SystemAdminKeySlot {
+  id          Int               @id @default(autoincrement())
+  systemKeyId Int               @map("system_key_id")
+  systemKey   SystemKeyMaterial @relation(fields: [systemKeyId], references: [id], onDelete: Cascade)
+  adminKeyId  Int               @map("admin_key_id")
+  adminKey    AdminKeyMaterial  @relation(fields: [adminKeyId], references: [id], onDelete: Cascade)
+  keyEnvelope Json              @map("key_envelope")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  revokedAt   DateTime?         @map("revoked_at")
+
+  @@unique([systemKeyId, adminKeyId])
+  @@map("system_admin_key_slots")
+}
+
+/// One random KEK per editorial. The raw key is available only by unwrapping
+/// one of its administrator slots (or an authorized Superadmin recovery slot).
+model EditorialKeyMaterial {
+  id          Int                     @id @default(autoincrement())
+  editorialId Int                     @unique @map("editorial_id")
+  editorial   Editorial               @relation(fields: [editorialId], references: [id], onDelete: Cascade)
+  keyVersion  Int                     @default(1) @map("key_version")
+  fingerprint String                  @unique
+  createdAt   DateTime                @default(now()) @map("created_at")
+  rotatedAt   DateTime?               @map("rotated_at")
+  adminSlots  EditorialAdminKeySlot[]
+
+  @@map("editorial_key_material")
+}
+
+/// The same Editorial KEK independently wrapped for one active administrator.
+model EditorialAdminKeySlot {
+  id             Int                  @id @default(autoincrement())
+  editorialKeyId Int                  @map("editorial_key_id")
+  editorialKey   EditorialKeyMaterial @relation(fields: [editorialKeyId], references: [id], onDelete: Cascade)
+  adminKeyId     Int                  @map("admin_key_id")
+  adminKey       AdminKeyMaterial     @relation(fields: [adminKeyId], references: [id], onDelete: Cascade)
+  keyEnvelope    Json                 @map("key_envelope")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  revokedAt      DateTime?            @map("revoked_at")
+
+  @@unique([editorialKeyId, adminKeyId])
+  @@map("editorial_admin_key_slots")
+}
+
+/// Public recovery authority. Only the RSA public key is persisted; the
+/// passphrase-encrypted private key is emitted once in an offline kit.
+model SuperadminRecoveryKey {
+  id               Int                 @id @default(autoincrement())
+  superadminUserId Int                 @map("superadmin_user_id")
+  superadmin       User                @relation("SuperadminRecoveryOwner", fields: [superadminUserId], references: [id], onDelete: Cascade)
+  slotNumber       Int                 @map("slot_number")
+  publicKey        String              @map("public_key")
+  fingerprint      String              @unique
+  createdAt        DateTime            @default(now()) @map("created_at")
+  revokedAt        DateTime?           @map("revoked_at")
+  ownerSlots       SuperadminKeySlot[]
+
+  @@unique([superadminUserId, slotNumber])
+  @@map("superadmin_recovery_keys")
+}
+
+/// An owner DEK sealed independently to one Superadmin RSA public key.
+model SuperadminKeySlot {
+  id               Int                   @id @default(autoincrement())
+  superadminUserId Int                   @map("superadmin_user_id")
+  superadmin       User                  @relation("SuperadminSlotOwner", fields: [superadminUserId], references: [id], onDelete: Cascade)
+  recoveryKeyId    Int                   @map("recovery_key_id")
+  recoveryKey      SuperadminRecoveryKey @relation(fields: [recoveryKeyId], references: [id], onDelete: Cascade)
+  ownerType        String                @map("owner_type")
+  ownerId          String                @map("owner_id")
+  slotNumber       Int                   @map("slot_number")
+  keyVersion       Int                   @default(1) @map("key_version")
+  keyEnvelope      Json                  @map("key_envelope")
+  createdAt        DateTime              @default(now()) @map("created_at")
+  revokedAt        DateTime?             @map("revoked_at")
+
+  @@unique([ownerType, ownerId, slotNumber])
+  @@index([superadminUserId])
+  @@index([recoveryKeyId])
+  @@map("superadmin_key_slots")
+}
+
+/// Metadata for an encrypted durable blob. Ciphertext lives under an opaque
+/// storage name; its random file DEK is wrapped by the owning DEK.
+model EncryptedFile {
+  id              String     @id @default(uuid()) @db.Uuid
+  ownerType       String     @map("owner_type")
+  ownerId         String     @map("owner_id")
+  editorialId     Int?       @map("editorial_id")
+  editorial       Editorial? @relation(fields: [editorialId], references: [id], onDelete: Cascade)
+  purpose         String
+  storageName     String     @unique @map("storage_name")
+  mimeType        String     @map("mime_type")
+  byteLength      Int        @map("byte_length")
+  contentEnvelope Json       @map("content_envelope")
+  fileKeyEnvelope Json       @map("file_key_envelope")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  replacedAt      DateTime?  @map("replaced_at")
+
+  @@index([ownerType, ownerId, purpose])
+  @@map("encrypted_files")
 }

@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   Param,
   ParseIntPipe,
   Post,
@@ -19,6 +20,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { JwtPayload } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { photoMulterOptions } from '../common/photo-upload';
+import { assertImageBytes } from '../common/secure-image';
 import { AttachJournalistDto } from './dto/attach-journalist.dto';
 import { CreateJournalistDto } from './dto/create-journalist.dto';
 import { UpdateJournalistDto } from './dto/update-journalist.dto';
@@ -33,8 +35,11 @@ export class JournalistsController {
 
   @Get()
   @ApiOperation({ summary: 'List journalists (editorial admin: only their members)' })
-  findAll(@CurrentUser() user: JwtPayload): Promise<AdminJournalist[]> {
-    return this.journalistsService.findAll(user);
+  findAll(
+    @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
+  ): Promise<AdminJournalist[]> {
+    return this.journalistsService.findAll(user, unlock);
   }
 
   @Post()
@@ -42,8 +47,9 @@ export class JournalistsController {
   create(
     @Body() dto: CreateJournalistDto,
     @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
   ): Promise<AdminJournalist> {
-    return this.journalistsService.create(dto, user);
+    return this.journalistsService.create(dto, user, unlock);
   }
 
   @Post('attach')
@@ -51,8 +57,9 @@ export class JournalistsController {
   attach(
     @Body() dto: AttachJournalistDto,
     @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
   ): Promise<AdminJournalist> {
-    return this.journalistsService.attach(dto, user);
+    return this.journalistsService.attach(dto, user, unlock);
   }
 
   @Put(':id')
@@ -61,8 +68,9 @@ export class JournalistsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateJournalistDto,
     @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
   ): Promise<AdminJournalist> {
-    return this.journalistsService.update(id, dto, user);
+    return this.journalistsService.update(id, dto, user, unlock);
   }
 
   @Delete(':id/membership')
@@ -70,8 +78,9 @@ export class JournalistsController {
   detach(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
   ): Promise<AdminJournalist> {
-    return this.journalistsService.detach(id, user);
+    return this.journalistsService.detach(id, user, unlock);
   }
 
   @Delete(':id')
@@ -96,11 +105,12 @@ export class JournalistsController {
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: JwtPayload,
     @UploadedFile() file?: Express.Multer.File,
+    @Headers('x-unlock-token') unlock?: string,
   ): Promise<AdminJournalist> {
     if (!file) {
       throw new BadRequestException('Photo file is required (multipart field "photo")');
     }
-    // Public URL path served by express.static in main.ts.
-    return this.journalistsService.setPhoto(id, `/uploads/photos/${file.filename}`, user);
+    assertImageBytes(file.buffer, file.mimetype);
+    return this.journalistsService.setPhoto(id, file.buffer, file.mimetype, user, unlock);
   }
 }

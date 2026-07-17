@@ -21,6 +21,9 @@
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+EXISTING_INSTALL=0
+[[ -f "$APP_DIR/.env" ]] && EXISTING_INSTALL=1
+env_value() { sed -n "s/^$1=//p" "$APP_DIR/.env" 2>/dev/null | tail -n1; }
 ASSUME_YES=0
 [[ "${1:-}" == "--yes" || "${1:-}" == "-y" ]] && ASSUME_YES=1
 
@@ -90,6 +93,7 @@ case "$PP_ACCESS" in
 esac
 prompt PP_ADMIN_EMAIL   "Email адміністратора платформи" "admin@${PP_DOMAIN}"
 prompt PP_ADMIN_PASSWORD "Пароль адміністратора (Enter — згенерувати)" ""
+prompt PP_ADMIN_ENCRYPTION_PASSPHRASE "Окрема криптографічна фраза адміністратора (Enter — згенерувати)" ""
 prompt PP_DB_PASSWORD   "Пароль PostgreSQL для presspass (Enter — згенерувати)" ""
 prompt PP_RESEND_API_KEY "Resend API key для листів (Enter — коди в лог, dev-режим)" ""
 prompt PP_GOOGLE_CLIENT_ID "Google OAuth Client ID (Enter — без входу через Google)" ""
@@ -99,9 +103,14 @@ if [[ -n "$PP_GOOGLE_CLIENT_ID" && -z "$PP_GOOGLE_CLIENT_SECRET" && $ASSUME_YES 
 fi
 
 [[ -n "$PP_ADMIN_PASSWORD" ]] || PP_ADMIN_PASSWORD="$(openssl rand -base64 12 | tr -d '/+=' )"
+if [[ -z "$PP_ADMIN_ENCRYPTION_PASSPHRASE" && $EXISTING_INSTALL -eq 1 ]]; then die "для оновлення задайте чинну PP_ADMIN_ENCRYPTION_PASSPHRASE"; fi
+[[ -n "$PP_ADMIN_ENCRYPTION_PASSPHRASE" ]] || PP_ADMIN_ENCRYPTION_PASSPHRASE="$(openssl rand -base64 24 | tr -d '/+=' )"
+PP_SUPERADMIN_RECOVERY_PASSPHRASE_1="${PP_SUPERADMIN_RECOVERY_PASSPHRASE_1:-$(openssl rand -base64 32 | tr -d '/+=' )}"
+PP_SUPERADMIN_RECOVERY_PASSPHRASE_2="${PP_SUPERADMIN_RECOVERY_PASSPHRASE_2:-$(openssl rand -base64 32 | tr -d '/+=' )}"
 [[ -n "$PP_DB_PASSWORD"    ]] || PP_DB_PASSWORD="$(openssl rand -hex 16)"
-JWT_SECRET="$(openssl rand -hex 32)"
-DATA_KEY_SECRET="$(openssl rand -hex 32)"
+JWT_SECRET="${JWT_SECRET:-$(env_value JWT_SECRET)}"; JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
+DATA_KEY_SECRET="${DATA_KEY_SECRET:-$(env_value DATA_KEY_SECRET)}"; DATA_KEY_SECRET="${DATA_KEY_SECRET:-$(openssl rand -hex 32)}"
+LOOKUP_KEY="${LOOKUP_KEY:-$(env_value LOOKUP_KEY)}"; LOOKUP_KEY="${LOOKUP_KEY:-$(openssl rand -hex 32)}"
 
 # Публічна схема: у режимах https-direct і proxy користувач працює по HTTPS.
 if [[ "$PP_ACCESS" == "http" ]]; then BASE_URL="http://$PP_DOMAIN"; else BASE_URL="https://$PP_DOMAIN"; fi
@@ -167,6 +176,7 @@ DATABASE_URL=postgresql://presspass:${PP_DB_PASSWORD}@localhost:5432/presspass?s
 PORT=3001
 JWT_SECRET=${JWT_SECRET}
 DATA_KEY_SECRET=${DATA_KEY_SECRET}
+LOOKUP_KEY=${LOOKUP_KEY}
 JWT_EXPIRES_IN=1d
 CORS_ORIGIN=${BASE_URL}
 VERIFY_BASE_URL=${BASE_URL}
@@ -194,14 +204,22 @@ npm ci --no-audit --no-fund >/dev/null
 
 step "Міграції бази даних та початкові дані"
 npx prisma migrate deploy
-NODE_ENV=production npm run db:seed
+NODE_ENV=production ADMIN_ENCRYPTION_PASSPHRASE="$PP_ADMIN_ENCRYPTION_PASSPHRASE" npm run db:seed
+RECOVERY_KIT_OUTPUT="/root/presspass-recovery-kits-$(date -u +%Y%m%dT%H%M%SZ).json"
+RECOVERY_KIT_OUTPUT="$RECOVERY_KIT_OUTPUT" \
+  ADMIN_ENCRYPTION_PASSPHRASE="$PP_ADMIN_ENCRYPTION_PASSPHRASE" \
+  SUPERADMIN_RECOVERY_PASSPHRASE_1="$PP_SUPERADMIN_RECOVERY_PASSPHRASE_1" \
+  SUPERADMIN_RECOVERY_PASSPHRASE_2="$PP_SUPERADMIN_RECOVERY_PASSPHRASE_2" \
+  npm run security:backfill
+npm run security:verify
 
 step "Production-збірка (API + Web)"
 npm run build
 
 # ─── 5. PM2 ──────────────────────────────────────────────────────────────────
 step "Запуск процесів через PM2"
-mkdir -p "$APP_DIR/uploads/photos"
+mkdir -p "$APP_DIR/uploads/encrypted"
+chmod 700 "$APP_DIR/uploads/encrypted"
 cd "$APP_DIR/apps/api"
 pm2 delete presspass-api >/dev/null 2>&1 || true
 pm2 start dist/main.js --name presspass-api --time >/dev/null
@@ -218,7 +236,7 @@ step "Налаштування Nginx"
 # certbot прив'яже сертифікат саме до нього.
 if [[ "$PP_ACCESS" == "https-direct" ]]; then SERVER_NAME="$PP_DOMAIN"; else SERVER_NAME="$PP_DOMAIN _"; fi
 
-# Спільні блоки проксі (API, uploads, Next.js) — використовуються в обох server-блоках.
+# Спільні блоки проксі (авторизований API та Next.js) — використовуються в обох server-блоках.
 read -r -d '' PROXY_LOCATIONS <<NGINX || true
     # REST API: /api/... -> NestJS (префікс /api зрізається слешем у proxy_pass)
     location /api/ {
@@ -227,11 +245,6 @@ read -r -d '' PROXY_LOCATIONS <<NGINX || true
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto ${FORWARDED_PROTO};
-    }
-
-    # Фотографії — напряму з диска, повз Node
-    location /uploads/ {
-        alias ${APP_DIR}/uploads/;
     }
 
     # Усе інше -> Next.js (PWA)
@@ -308,8 +321,12 @@ echo "  Сайт:        $BASE_URL/login"
 echo "  Swagger:     $BASE_URL/api/docs"
 echo "  Логін:       $PP_ADMIN_EMAIL"
 echo "  Пароль:      $PP_ADMIN_PASSWORD"
+echo "  Crypto-фраза: $PP_ADMIN_ENCRYPTION_PASSPHRASE"
+echo "  Recovery #1:  $PP_SUPERADMIN_RECOVERY_PASSPHRASE_1"
+echo "  Recovery #2:  $PP_SUPERADMIN_RECOVERY_PASSPHRASE_2"
+echo "  Recovery kits: $RECOVERY_KIT_OUTPUT"
 echo
-echo "  ${YELLOW}Збережіть пароль і змініть його після першого входу.${RESET}"
+echo "  ${YELLOW}Збережіть пароль і криптографічну фразу окремо. Crypto-фраза не відновлюється сервером.${RESET}"
 echo "  Конфігурація: $APP_DIR/.env (права 600)"
 echo "  Оновлення:    sudo bash $APP_DIR/deploy/update.sh"
 echo "  Процеси:      pm2 status | pm2 logs presspass-api"

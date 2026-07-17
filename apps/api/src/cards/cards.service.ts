@@ -13,272 +13,461 @@ import {
   type CardQr,
   type CardResponse,
 } from '@presspass/shared';
-import type { Card } from '@prisma/client';
+import type { Card, Editorial, Journalist } from '@prisma/client';
 import { v7 as uuidv7 } from 'uuid';
-
 import type { JwtPayload } from '../auth/auth.types';
 import { mapCard } from '../common/card.mapper';
-import { EditorialKeyGrantService } from '../crypto/editorial-key-grant.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { QrTokenService } from '../qr/qr-token.service';
+import { UnlockSessionService } from '../crypto/unlock-session.service';
+import { DomainPayloadService } from '../crypto/domain-payload.service';
+import { KeyHierarchyService } from '../crypto/key-hierarchy.service';
+import { BlindIndexService } from '../crypto/blind-index.service';
+import { EncryptedFileService } from '../crypto/encrypted-file.service';
 import type { BlockCardDto, RenewCardDto } from './dto/card-action.dto';
 import type { CreateCardDto } from './dto/create-card.dto';
 import type { UpdateCardDto } from './dto/update-card.dto';
 
+type FullCard = Card & { journalist: Journalist; editorial: Editorial | null };
+interface CardSecret {
+  cardNumber: string;
+  position: string;
+  positionEn: string;
+  issueDate: string;
+  expireDate: string;
+  editorialSnapshot?: Record<string, unknown>;
+}
 @Injectable()
 export class CardsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly qrToken: QrTokenService,
-    private readonly editorialGrants: EditorialKeyGrantService,
+    private readonly sessions: UnlockSessionService,
+    private readonly payloads: DomainPayloadService,
+    private readonly hierarchy: KeyHierarchyService,
+    private readonly blind: BlindIndexService,
+    private readonly files: EncryptedFileService,
   ) {}
+  get verifyBaseUrl(): string {
+    return this.config.get<string>('VERIFY_BASE_URL', 'https://id.domain.ua');
+  }
 
-  /** Свіжий динамічний QR для адміністратора (кнопка «Перевірка»). */
-  async getQr(id: number, actor: JwtPayload, baseUrl = this.verifyBaseUrl): Promise<CardQr> {
-    const card = await this.ensureExists(id);
-    this.assertManages(card, actor);
-    const token = await this.qrToken.sign(card.uuid);
+  async getQr(
+    id: number,
+    actor: JwtPayload,
+    baseUrl = this.verifyBaseUrl,
+    unlock?: string,
+  ): Promise<CardQr> {
+    const raw = await this.prisma.card.findUnique({
+      where: { id },
+      include: { journalist: true, editorial: true },
+    });
+    if (!raw) throw new NotFoundException('Card not found');
+    this.assertManages(raw, actor);
+    const card = await this.hydrate(raw, actor, unlock);
+    const token = await this.qrToken.sign(card.uuid, {
+      cardNumber: card.cardNumber,
+      expireDate: card.expireDate!.toISOString(),
+      fullName: card.journalist.fullName,
+      fullNameEn: card.journalist.fullNameEn,
+      position: card.position,
+      organization: card.editorial?.displayNameUk || card.editorial?.name || '',
+      photoPath: null,
+      editorial: card.editorial
+        ? {
+            id: card.editorial.id,
+            name: card.editorial.name,
+            displayNameUk: card.editorial.displayNameUk,
+            displayNameEn: card.editorial.displayNameEn,
+            mediaId: card.editorial.mediaId,
+            website: card.editorial.website,
+            logoPath: null,
+          }
+        : null,
+      nszhuMember: card.journalist.nszhuMember,
+      nszhuLogoPath: null,
+    });
     return {
       verifyUrl: buildVerifyUrl(baseUrl, card.uuid, token),
       expiresInSeconds: this.qrToken.ttlSeconds,
     };
   }
-
-  /** Configured verify base URL; used as a fallback when the host is unknown. */
-  get verifyBaseUrl(): string {
-    return this.config.get<string>('VERIFY_BASE_URL', 'https://id.domain.ua');
-  }
-
-  async findAll(actor: JwtPayload, baseUrl = this.verifyBaseUrl): Promise<CardResponse[]> {
+  async findAll(
+    actor: JwtPayload,
+    baseUrl = this.verifyBaseUrl,
+    unlock?: string,
+  ): Promise<CardResponse[]> {
     const cards = await this.prisma.card.findMany({
-      // Editorial admins only see cards issued by their own editorial.
       where: actor.role === 'EDITORIAL_ADMIN' ? { editorialId: actor.editorialId } : undefined,
       include: { journalist: true, editorial: true },
       orderBy: { id: 'asc' },
     });
-    return cards.map((card) => mapCard(card, baseUrl));
+    const result: CardResponse[] = [];
+    for (const card of cards)
+      result.push(mapCard(await this.hydrate(card, actor, unlock), baseUrl));
+    return result;
   }
-
-  /** Editorial admins may only act on cards issued by their own editorial. */
-  private assertManages(card: Card, actor: JwtPayload): void {
-    if (actor.role === 'EDITORIAL_ADMIN' && card.editorialId !== actor.editorialId) {
-      throw new ForbiddenException('Це посвідчення видане іншою редакцією');
-    }
-  }
-
-  /**
-   * Issues a new card. The UUID is a UUIDv7 — the only identifier ever
-   * embedded in the QR code (no personal data).
-   */
-  async create(dto: CreateCardDto, actor: JwtPayload): Promise<CardResponse> {
-    const journalist = await this.prisma.journalist.findUnique({
-      where: { id: dto.journalistId },
-    });
-    if (!journalist) {
-      throw new NotFoundException('Journalist not found');
-    }
-
-    // Посвідчення видається виключно від імені доданої редакції. Редакційний
-    // адміністратор може видавати лише від своєї редакції — вона підставляється
-    // з токена; системний адміністратор вибирає редакцію зі списку.
-    const editorialId =
-      actor.role === 'EDITORIAL_ADMIN' ? (actor.editorialId ?? undefined) : dto.editorialId;
-    if (!editorialId) {
+  async create(dto: CreateCardDto, actor: JwtPayload, unlock?: string): Promise<CardResponse> {
+    const journalist = await this.prisma.journalist.findUnique({ where: { id: dto.journalistId } });
+    if (!journalist) throw new NotFoundException('Journalist not found');
+    const editorialId = actor.role === 'EDITORIAL_ADMIN' ? actor.editorialId : dto.editorialId;
+    if (!editorialId)
       throw new BadRequestException('Виберіть редакцію, від імені якої видається посвідчення');
-    }
     const editorial = await this.prisma.editorial.findUnique({ where: { id: editorialId } });
-    if (!editorial) {
-      throw new NotFoundException('Editorial not found');
-    }
-
-    if (!journalist.fullName) {
-      throw new BadRequestException('Перед видачею вкажіть ПІБ журналіста');
-    }
-    // Посаду для посвідчення заповнює редакція під час видачі.
-    if (!dto.position?.trim()) {
-      throw new BadRequestException('Вкажіть посаду для посвідчення');
-    }
-    // Самозареєстровані користувачі спершу заповнюють анкету (ПІП, дата
-    // народження, фото, паспортні дані, ІПН, телефон) — вимога процесу видачі.
-    if (journalist.selfRegistered && !isProfileComplete(journalist)) {
-      throw new BadRequestException(
-        'Анкету журналіста не заповнено повністю — посвідчення видати не можна',
-      );
-    }
-
-    const issueDate = dto.issueDate ? new Date(dto.issueDate) : new Date();
-    const expireDate = new Date(dto.expireDate);
-    if (expireDate.getTime() <= issueDate.getTime()) {
-      throw new BadRequestException('expireDate must be after issueDate');
-    }
-
-    let cardNumber: string;
-    let numberSeq = 0;
-    if (dto.cardNumber) {
-      cardNumber = dto.cardNumber;
-      const existingNumber = await this.prisma.card.findUnique({ where: { cardNumber } });
-      if (existingNumber) {
-        throw new ConflictException('A card with this number already exists');
+    if (!editorial) throw new NotFoundException('Editorial not found');
+    const editorialKey = this.key(actor, unlock, editorialId);
+    let profileKey: Buffer | undefined;
+    try {
+      const hydratedEditorial = this.decryptEditorial(editorial, editorialKey);
+      profileKey = await this.profileKeyForEditorial(journalist, editorialId, editorialKey);
+      const hydratedJournalist = this.decryptJournalistWithKey(journalist, profileKey);
+      if (!hydratedJournalist.fullName)
+        throw new BadRequestException('Перед видачею вкажіть ПІБ журналіста');
+      if (!dto.position?.trim()) throw new BadRequestException('Вкажіть посаду для посвідчення');
+      if (hydratedJournalist.selfRegistered && !isProfileComplete(hydratedJournalist))
+        throw new BadRequestException(
+          'Анкету журналіста не заповнено повністю — посвідчення видати не можна',
+        );
+      const issueDate = dto.issueDate ? new Date(dto.issueDate) : new Date();
+      const expireDate = new Date(dto.expireDate);
+      if (expireDate <= issueDate)
+        throw new BadRequestException('expireDate must be after issueDate');
+      let cardNumber: string;
+      let numberSeq = 0;
+      if (dto.cardNumber) {
+        cardNumber = dto.cardNumber.trim();
+        await this.assertNumberFree(cardNumber);
+      } else
+        ({ cardNumber, numberSeq } = await this.generateCardNumber(hydratedEditorial, issueDate));
+      const uuid = uuidv7();
+      const created = await this.prisma.card.create({
+        data: {
+          uuid,
+          journalistId: journalist.id,
+          editorialId,
+          status: 'ACTIVE',
+          numberSeq,
+          cardNumber: `encrypted:${uuid}`,
+          cardNumberBlindIndex: this.blind.value('card-number', cardNumber),
+          position: '',
+          positionEn: '',
+          issueDate: null,
+          expireDate: null,
+        },
+        include: { journalist: true, editorial: true },
+      });
+      let cardLogoPath: string | null = null;
+      const editorialLogoId = hydratedEditorial.logoPath?.match(/^\/media\/([0-9a-f-]+)$/i)?.[1];
+      if (editorialLogoId) {
+        const logo = await this.files.read(editorialLogoId, editorialKey);
+        const copyId = await this.files.store({
+          ownerType: 'user',
+          ownerId: String(journalist.userId),
+          purpose: `card-logo:${created.id}`,
+          mimeType: logo.mimeType,
+          bytes: logo.bytes,
+          ownerKey: profileKey,
+        });
+        cardLogoPath = `/media/${copyId}`;
       }
-    } else {
-      ({ cardNumber, numberSeq } = await this.generateCardNumber(editorial, issueDate));
-    }
-
-    const card = await this.prisma.card.create({
-      data: {
-        uuid: uuidv7(),
-        journalistId: dto.journalistId,
-        editorialId,
+      const secret: CardSecret = {
+        cardNumber,
         position: dto.position.trim(),
         positionEn: dto.positionEn?.trim() ?? '',
-        cardNumber,
-        numberSeq,
-        issueDate,
-        expireDate,
-        status: 'ACTIVE',
-      },
-      include: { journalist: true, editorial: true },
-    });
-    // A journalist issued a card by an editorial is a member of it (keeps the
-    // membership/visibility consistent with the cards that exist).
-    await this.prisma.editorialMembership.upsert({
-      where: { editorialId_journalistId: { editorialId, journalistId: dto.journalistId } },
-      update: {},
-      create: { editorialId, journalistId: dto.journalistId },
-    });
-    await this.editorialGrants.syncFromRecovery(card.journalist.userId);
-    return mapCard(card, this.verifyBaseUrl);
-  }
-
-  async update(id: number, dto: UpdateCardDto): Promise<CardResponse> {
-    const card = await this.prisma.card.findUnique({ where: { id } });
-    if (!card) {
-      throw new NotFoundException('Card not found');
-    }
-
-    if (dto.cardNumber && dto.cardNumber !== card.cardNumber) {
-      const existingNumber = await this.prisma.card.findUnique({
-        where: { cardNumber: dto.cardNumber },
+        issueDate: issueDate.toISOString(),
+        expireDate: expireDate.toISOString(),
+        editorialSnapshot: {
+          name: hydratedEditorial.name,
+          displayNameUk: hydratedEditorial.displayNameUk,
+          displayNameEn: hydratedEditorial.displayNameEn,
+          mediaId: hydratedEditorial.mediaId,
+          website: hydratedEditorial.website,
+          logoPath: cardLogoPath,
+        },
+      };
+      const secured = await this.prisma.card.update({
+        where: { id: created.id },
+        data: {
+          encryptedData: this.payloads.encrypt(
+            'card',
+            created.id,
+            `user:${journalist.userId}`,
+            secret,
+            profileKey,
+          ),
+        },
+        include: { journalist: true, editorial: true },
       });
-      if (existingNumber) {
-        throw new ConflictException('A card with this number already exists');
-      }
+      return mapCard(
+        this.mergeCard(secured, secret, hydratedJournalist, hydratedEditorial),
+        this.verifyBaseUrl,
+      );
+    } finally {
+      editorialKey.fill(0);
+      profileKey?.fill(0);
     }
-
-    const updated = await this.prisma.card.update({
+  }
+  async update(
+    id: number,
+    dto: UpdateCardDto,
+    actor?: JwtPayload,
+    unlock?: string,
+  ): Promise<CardResponse> {
+    const raw = await this.prisma.card.findUnique({
       where: { id },
-      data: {
-        cardNumber: dto.cardNumber,
-        issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined,
-        expireDate: dto.expireDate ? new Date(dto.expireDate) : undefined,
-        status: dto.status,
-      },
       include: { journalist: true, editorial: true },
     });
-    return mapCard(updated, this.verifyBaseUrl);
-  }
-
-  /** Revokes a card. A blocked card fails public verification immediately. */
-  async block(dto: BlockCardDto, actor: JwtPayload): Promise<CardResponse> {
-    this.assertManages(await this.ensureExists(dto.cardId), actor);
-    const card = await this.prisma.card.update({
-      where: { id: dto.cardId },
-      data: { status: 'BLOCKED' },
-      include: { journalist: true, editorial: true },
-    });
-    return mapCard(card, this.verifyBaseUrl);
-  }
-
-  /** Extends a card's validity and reactivates it (including blocked ones). */
-  async renew(dto: RenewCardDto, actor: JwtPayload): Promise<CardResponse> {
-    const card = await this.ensureExists(dto.cardId);
-    this.assertManages(card, actor);
-    const expireDate = new Date(dto.expireDate);
-    if (expireDate.getTime() <= card.issueDate.getTime()) {
-      throw new BadRequestException('expireDate must be after issueDate');
+    if (!raw?.editorialId || !actor) throw new NotFoundException('Card not found');
+    this.assertManages(raw, actor);
+    const key = this.key(actor, unlock, raw.editorialId);
+    let profile: Buffer | undefined;
+    try {
+      profile = await this.profileKeyForEditorial(raw.journalist, raw.editorialId, key);
+      const current = this.cardSecret(raw, profile);
+      const next: CardSecret = {
+        ...current,
+        ...(dto.cardNumber ? { cardNumber: dto.cardNumber.trim() } : {}),
+        ...(dto.issueDate ? { issueDate: new Date(dto.issueDate).toISOString() } : {}),
+        ...(dto.expireDate ? { expireDate: new Date(dto.expireDate).toISOString() } : {}),
+      };
+      if (dto.cardNumber && dto.cardNumber !== current.cardNumber)
+        await this.assertNumberFree(dto.cardNumber);
+      const updated = await this.prisma.card.update({
+        where: { id },
+        data: {
+          status: dto.status,
+          cardNumberBlindIndex: this.blind.value('card-number', next.cardNumber),
+          encryptedData: this.payloads.encrypt(
+            'card',
+            id,
+            `user:${raw.journalist.userId}`,
+            next,
+            profile,
+          ),
+        },
+        include: { journalist: true, editorial: true },
+      });
+      return mapCard(await this.hydrate(updated, actor, unlock, key), this.verifyBaseUrl);
+    } finally {
+      key.fill(0);
+      profile?.fill(0);
     }
-    const updated = await this.prisma.card.update({
+  }
+  async block(dto: BlockCardDto, actor: JwtPayload, unlock?: string): Promise<CardResponse> {
+    const raw = await this.ensureExists(dto.cardId);
+    this.assertManages(raw, actor);
+    await this.prisma.card.update({ where: { id: dto.cardId }, data: { status: 'BLOCKED' } });
+    return this.one(dto.cardId, actor, unlock);
+  }
+  async renew(dto: RenewCardDto, actor: JwtPayload, unlock?: string): Promise<CardResponse> {
+    const raw = await this.prisma.card.findUnique({
       where: { id: dto.cardId },
-      data: { expireDate, status: 'ACTIVE' },
       include: { journalist: true, editorial: true },
     });
-    return mapCard(updated, this.verifyBaseUrl);
+    if (!raw?.editorialId) throw new NotFoundException('Card not found');
+    this.assertManages(raw, actor);
+    const key = this.key(actor, unlock, raw.editorialId);
+    let profile: Buffer | undefined;
+    try {
+      profile = await this.profileKeyForEditorial(raw.journalist, raw.editorialId, key);
+      const secret = this.cardSecret(raw, profile);
+      const expire = new Date(dto.expireDate);
+      if (expire <= new Date(secret.issueDate))
+        throw new BadRequestException('expireDate must be after issueDate');
+      secret.expireDate = expire.toISOString();
+      await this.prisma.card.update({
+        where: { id: raw.id },
+        data: {
+          status: 'ACTIVE',
+          encryptedData: this.payloads.encrypt(
+            'card',
+            raw.id,
+            `user:${raw.journalist.userId}`,
+            secret,
+            profile,
+          ),
+        },
+      });
+      return this.one(raw.id, actor, unlock);
+    } finally {
+      key.fill(0);
+      profile?.fill(0);
+    }
   }
-
-  /** Permanently deletes an issued card. Editorial admins: own cards only. */
   async remove(id: number, actor: JwtPayload): Promise<{ success: boolean }> {
-    this.assertManages(await this.ensureExists(id), actor);
+    const card = await this.ensureExists(id);
+    this.assertManages(card, actor);
+    const journalist = await this.prisma.journalist.findUniqueOrThrow({
+      where: { id: card.journalistId },
+    });
+    await this.files.removePurpose('user', String(journalist.userId), `card-logo:${id}`);
     await this.prisma.card.delete({ where: { id } });
     return { success: true };
   }
-
-  private async ensureExists(id: number) {
-    const card = await this.prisma.card.findUnique({ where: { id } });
-    if (!card) {
-      throw new NotFoundException('Card not found');
+  private async one(id: number, actor: JwtPayload, unlock?: string): Promise<CardResponse> {
+    const raw = await this.prisma.card.findUniqueOrThrow({
+      where: { id },
+      include: { journalist: true, editorial: true },
+    });
+    return mapCard(await this.hydrate(raw, actor, unlock), this.verifyBaseUrl);
+  }
+  private async hydrate(
+    raw: FullCard,
+    actor: JwtPayload,
+    unlock?: string,
+    supplied?: Buffer,
+  ): Promise<FullCard> {
+    if (!raw.editorialId) return raw;
+    const key = supplied ? Buffer.from(supplied) : this.key(actor, unlock, raw.editorialId);
+    let profile: Buffer | undefined;
+    try {
+      profile = await this.profileKeyForEditorial(raw.journalist, raw.editorialId, key);
+      const secret = this.cardSecret(raw, profile);
+      const journalist = this.decryptJournalistWithKey(raw.journalist, profile);
+      const editorial = raw.editorial ? this.decryptEditorial(raw.editorial, key) : null;
+      return this.mergeCard(raw, secret, journalist, editorial);
+    } finally {
+      key.fill(0);
+      profile?.fill(0);
     }
+  }
+  private mergeCard(
+    raw: FullCard,
+    secret: CardSecret,
+    journalist: Journalist,
+    editorial: Editorial | null,
+  ): FullCard {
+    return {
+      ...raw,
+      ...secret,
+      issueDate: new Date(secret.issueDate),
+      expireDate: new Date(secret.expireDate),
+      journalist,
+      editorial,
+    } as FullCard;
+  }
+  private cardSecret(card: Card, key: Buffer): CardSecret {
+    if (!card.encryptedData)
+      return {
+        cardNumber: card.cardNumber,
+        position: card.position,
+        positionEn: card.positionEn,
+        issueDate: card.issueDate!.toISOString(),
+        expireDate: card.expireDate!.toISOString(),
+      };
+    return this.payloads.decrypt(
+      'card',
+      card.id,
+      `user:${(card as Card & { journalist?: Journalist }).journalist?.userId ?? 'unknown'}`,
+      card.encryptedData,
+      key,
+    );
+  }
+  private decryptEditorial(editorial: Editorial, key: Buffer): Editorial {
+    return editorial.encryptedData
+      ? {
+          ...editorial,
+          ...this.payloads.decrypt<object>(
+            'editorial',
+            editorial.id,
+            `editorial:${editorial.id}`,
+            editorial.encryptedData,
+            key,
+          ),
+        }
+      : editorial;
+  }
+  private async profileKeyForEditorial(
+    journalist: Journalist,
+    editorialId: number,
+    editorialKey: Buffer,
+  ): Promise<Buffer> {
+    const grant = await this.prisma.editorialDataKeyGrant.findUnique({
+      where: { userId_editorialId: { userId: journalist.userId, editorialId } },
+    });
+    if (!grant)
+      throw new BadRequestException(
+        'Журналіст ще не надав редакції зашифрований доступ до профілю',
+      );
+    return this.hierarchy.unwrapProfileForEditorial(
+      journalist.userId,
+      editorialId,
+      grant.keyEnvelope,
+      editorialKey,
+    );
+  }
+  private decryptJournalistWithKey(journalist: Journalist, profile: Buffer): Journalist {
+    return journalist.encryptedData
+      ? {
+          ...journalist,
+          ...this.payloads.decrypt<object>(
+            'journalist',
+            journalist.id,
+            `user:${journalist.userId}`,
+            journalist.encryptedData,
+            profile,
+          ),
+        }
+      : journalist;
+  }
+  private key(actor: JwtPayload, token: string | undefined, editorialId: number): Buffer {
+    if (!token) throw new BadRequestException('Encryption unlock required');
+    try {
+      return this.sessions.key(token, actor.sub, `editorial:${editorialId}`);
+    } catch {
+      throw new BadRequestException('Encryption unlock required');
+    }
+  }
+  private async assertNumberFree(number: string): Promise<void> {
+    if (
+      await this.prisma.card.findFirst({
+        where: {
+          OR: [
+            { cardNumberBlindIndex: this.blind.value('card-number', number) },
+            { cardNumber: number },
+          ],
+        },
+      })
+    )
+      throw new ConflictException('A card with this number already exists');
+  }
+  private assertManages(card: Card, actor: JwtPayload): void {
+    if (actor.role === 'EDITORIAL_ADMIN' && card.editorialId !== actor.editorialId)
+      throw new ForbiddenException('Це посвідчення видане іншою редакцією');
+  }
+  private async ensureExists(id: number): Promise<Card> {
+    const card = await this.prisma.card.findUnique({ where: { id } });
+    if (!card) throw new NotFoundException('Card not found');
     return card;
   }
-
-  /**
-   * Builds the next human-readable card number for the issuing editorial.
-   *
-   * With a configured prefix the number follows the editorial's own template
-   * (e.g. `KV-2026-000042`) and the sequence resets each year, scoped to the
-   * editorial (distinct prefixes keep editorials from colliding). Without a
-   * prefix it falls back to the legacy global scheme `PP-<year>-<seq>`. Either
-   * way it advances past any taken number, so deletions/manual numbers never
-   * collide with a live one, and the globally-unique column is the final guard.
-   */
   private async generateCardNumber(
-    editorial: {
-      id: number;
-      cardNumberPrefix: string;
-      cardNumberTemplate: string;
-      mediaId: string;
-    },
+    editorial: Editorial,
     issueDate: Date,
   ): Promise<{ cardNumber: string; numberSeq: number }> {
     const year = issueDate.getUTCFullYear();
     const prefix = editorial.cardNumberPrefix.trim();
-
-    if (!prefix) {
-      // Legacy global numbering (shared across editorials), kept for back-compat.
-      const legacyPrefix = `PP-${year}-`;
-      const last = await this.prisma.card.findFirst({
-        where: { cardNumber: { startsWith: legacyPrefix } },
-        orderBy: { cardNumber: 'desc' },
-        select: { cardNumber: true },
-      });
-      let next = last ? Number(last.cardNumber.slice(legacyPrefix.length)) + 1 : 1;
-      const legacyFormat = (n: number) => `${legacyPrefix}${String(n).padStart(6, '0')}`;
-      while (await this.prisma.card.findUnique({ where: { cardNumber: legacyFormat(next) } })) {
-        next += 1;
-      }
-      return { cardNumber: legacyFormat(next), numberSeq: next };
-    }
-
-    // Per-editorial, per-year sequence (derived from the max stored seq).
-    const yearStart = new Date(Date.UTC(year, 0, 1));
-    const nextYear = new Date(Date.UTC(year + 1, 0, 1));
     const top = await this.prisma.card.findFirst({
-      where: { editorialId: editorial.id, issueDate: { gte: yearStart, lt: nextYear } },
+      where: { editorialId: editorial.id },
       orderBy: { numberSeq: 'desc' },
       select: { numberSeq: true },
     });
     let seq = (top?.numberSeq ?? 0) + 1;
     const render = (n: number) =>
-      renderCardNumber(editorial.cardNumberTemplate, {
-        prefix,
-        year,
-        seq: n,
-        mediaId: editorial.mediaId,
-      });
-    // Advance past any number already taken (manual entries, template changes).
-    while (await this.prisma.card.findUnique({ where: { cardNumber: render(seq) } })) {
+      prefix
+        ? renderCardNumber(editorial.cardNumberTemplate, {
+            prefix,
+            year,
+            seq: n,
+            mediaId: editorial.mediaId,
+          })
+        : `PP-${year}-${String(n).padStart(6, '0')}`;
+    while (
+      await this.prisma.card.findFirst({
+        where: { cardNumberBlindIndex: this.blind.value('card-number', render(seq)) },
+      })
+    )
       seq += 1;
-    }
     return { cardNumber: render(seq), numberSeq: seq };
   }
 }

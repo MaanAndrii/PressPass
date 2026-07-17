@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -33,8 +34,16 @@ export class CardsController {
 
   @Get()
   @ApiOperation({ summary: 'List cards (editorial admins: their own editorial only)' })
-  findAll(@CurrentUser() user: JwtPayload, @Req() req: Request): Promise<CardResponse[]> {
-    return this.cardsService.findAll(user, requestBaseUrl(req, this.cardsService.verifyBaseUrl));
+  findAll(
+    @CurrentUser() user: JwtPayload,
+    @Req() req: Request,
+    @Headers('x-unlock-token') unlock?: string,
+  ): Promise<CardResponse[]> {
+    return this.cardsService.findAll(
+      user,
+      requestBaseUrl(req, this.cardsService.verifyBaseUrl),
+      unlock,
+    );
   }
 
   @Get(':id/qr')
@@ -43,20 +52,35 @@ export class CardsController {
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: JwtPayload,
     @Req() req: Request,
+    @Headers('x-unlock-token') unlock?: string,
   ): Promise<CardQr> {
-    return this.cardsService.getQr(id, user, requestBaseUrl(req, this.cardsService.verifyBaseUrl));
+    return this.cardsService.getQr(
+      id,
+      user,
+      requestBaseUrl(req, this.cardsService.verifyBaseUrl),
+      unlock,
+    );
   }
 
   @Post()
   @ApiOperation({ summary: 'Issue a new card (UUIDv7 is generated server-side)' })
-  create(@Body() dto: CreateCardDto, @CurrentUser() user: JwtPayload): Promise<CardResponse> {
-    return this.cardsService.create(dto, user);
+  create(
+    @Body() dto: CreateCardDto,
+    @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
+  ): Promise<CardResponse> {
+    return this.cardsService.create(dto, user, unlock);
   }
 
   @Put(':id')
   @ApiOperation({ summary: 'Update card fields' })
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateCardDto): Promise<CardResponse> {
-    return this.cardsService.update(id, dto);
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateCardDto,
+    @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
+  ): Promise<CardResponse> {
+    return this.cardsService.update(id, dto, user, unlock);
   }
 
   @Delete(':id')
@@ -71,14 +95,22 @@ export class CardsController {
   @Post('block')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Block (revoke) a card' })
-  block(@Body() dto: BlockCardDto, @CurrentUser() user: JwtPayload): Promise<CardResponse> {
-    return this.cardsService.block(dto, user);
+  block(
+    @Body() dto: BlockCardDto,
+    @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
+  ): Promise<CardResponse> {
+    return this.cardsService.block(dto, user, unlock);
   }
 
   @Post('renew')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Renew a card: extend expiration and reactivate' })
-  renew(@Body() dto: RenewCardDto, @CurrentUser() user: JwtPayload): Promise<CardResponse> {
-    return this.cardsService.renew(dto, user);
+  renew(
+    @Body() dto: RenewCardDto,
+    @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
+  ): Promise<CardResponse> {
+    return this.cardsService.renew(dto, user, unlock);
   }
 }

@@ -4,10 +4,12 @@ import type { UserProfile } from '@presspass/shared';
 
 const TOKEN_KEY = 'presspass.token';
 const USER_KEY = 'presspass.user';
+const UNLOCK_KEY = 'presspass.unlock';
 
-export function saveSession(token: string, user: UserProfile): void {
+export function saveSession(token: string, user: UserProfile, unlockToken?: string): void {
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
+  if (unlockToken) sessionStorage.setItem(UNLOCK_KEY, unlockToken);
 }
 
 export function getToken(): string | null {
@@ -32,7 +34,16 @@ export function getStoredUser(): UserProfile | null {
   }
 }
 
+export function saveUnlockToken(token: string): void {
+  sessionStorage.setItem(UNLOCK_KEY, token);
+}
+
+export function getUnlockToken(): string | null {
+  return typeof window === 'undefined' ? null : sessionStorage.getItem(UNLOCK_KEY);
+}
+
 export function clearSession(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  sessionStorage.removeItem(UNLOCK_KEY);
 }

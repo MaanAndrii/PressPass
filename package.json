@@ -20,12 +20,15 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
+    "pretest": "npm run build -w @presspass/shared",
     "test": "npm run test -w @presspass/api",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
-    "db:seed": "tsx prisma/seed.ts",
-    "openapi:generate": "npm run openapi:generate -w @presspass/api"
+    "db:seed": "tsx --env-file=.env prisma/seed.ts",
+    "openapi:generate": "npm run openapi:generate -w @presspass/api",
+    "security:backfill": "tsx --env-file=.env prisma/security-backfill.ts",
+    "security:verify": "tsx --env-file=.env prisma/security-verify.ts"
   },
   "lint-staged": {
     "*.{ts,tsx}": [

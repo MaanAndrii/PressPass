@@ -7,30 +7,72 @@
  *
  * Usage: npm run db:seed
  */
-import { PrismaClient, Role, CardStatus } from '@prisma/client';
+import { PrismaClient, Role } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
+import { BlindIndexService } from '../apps/api/src/crypto/blind-index.service';
+import { DataEncryptionService } from '../apps/api/src/crypto/data-encryption.service';
+import { ProtectedDataService } from '../apps/api/src/crypto/protected-data.service';
+import { UserKeyMaterialService } from '../apps/api/src/crypto/user-key-material.service';
+import { KeyHierarchyService } from '../apps/api/src/crypto/key-hierarchy.service';
+import type { PrismaService } from '../apps/api/src/prisma/prisma.service';
 import * as argon2 from 'argon2';
-import { v7 as uuidv7 } from 'uuid';
 
 const prisma = new PrismaClient();
 
 async function main(): Promise<void> {
   const adminEmail = process.env.ADMIN_EMAIL ?? 'admin@presspass.local';
   const adminPassword = process.env.ADMIN_PASSWORD ?? 'ChangeMe_Admin1!';
-
-  // Пароль оновлюється і для наявного адміністратора: seed запускається
-  // інсталятором, який показує ADMIN_PASSWORD як чинні облікові дані.
-  const adminPasswordHash = await argon2.hash(adminPassword);
-  const admin = await prisma.user.upsert({
-    where: { email: adminEmail },
-    update: { passwordHash: adminPasswordHash, role: Role.ADMIN, emailVerifiedAt: new Date() },
-    create: {
-      email: adminEmail,
-      passwordHash: adminPasswordHash,
-      role: Role.ADMIN,
-      emailVerifiedAt: new Date(),
-    },
+  const adminEncryptionPassphrase = process.env.ADMIN_ENCRYPTION_PASSPHRASE;
+  const config = new ConfigService(process.env);
+  const blind = new BlindIndexService(config);
+  const normalizedEmail = blind.normalizeEmail(adminEmail);
+  const emailIndex = blind.email(normalizedEmail);
+  let admin = await prisma.user.findFirst({
+    where: { OR: [{ emailBlindIndex: emailIndex }, { email: normalizedEmail }] },
   });
-  console.log(`Admin user ready: ${admin.email}`);
+  if (!admin)
+    admin = await prisma.user.create({
+      data: {
+        email: emailIndex,
+        emailBlindIndex: emailIndex,
+        passwordHash: await argon2.hash(adminPassword),
+        role: Role.ADMIN,
+        emailVerifiedAt: new Date(),
+      },
+    });
+  const encryption = new DataEncryptionService();
+  const protectedData = new ProtectedDataService(encryption);
+  const userKeys = new UserKeyMaterialService(encryption, config, protectedData);
+  if (!admin.dataKeyEnvelope) {
+    const material = await userKeys.provision(admin.id, adminPassword, { email: normalizedEmail });
+    admin = await prisma.user.update({
+      where: { id: admin.id },
+      data: {
+        ...material,
+        email: emailIndex,
+        emailBlindIndex: emailIndex,
+        role: Role.ADMIN,
+        emailVerifiedAt: new Date(),
+      },
+    });
+  }
+  const hierarchy = new KeyHierarchyService(prisma as unknown as PrismaService, encryption);
+  if (!(await prisma.adminKeyMaterial.findUnique({ where: { userId: admin.id } }))) {
+    if (!adminEncryptionPassphrase || adminEncryptionPassphrase.length < 12)
+      throw new Error(
+        'ADMIN_ENCRYPTION_PASSPHRASE (min 12 chars) is required for initial key enrollment',
+      );
+    const adminKey = await hierarchy.enrollAdmin(admin.id, adminEncryptionPassphrase);
+    try {
+      if (!(await prisma.systemKeyMaterial.findUnique({ where: { id: 1 } }))) {
+        const systemKey = await hierarchy.provisionSystemForFirstAdmin(admin.id, adminKey);
+        systemKey.fill(0);
+      }
+    } finally {
+      adminKey.fill(0);
+    }
+  }
+  console.log('Initial administrator encrypted key material is ready');
 
   // Каталог посад (укр./англ.) — заповнюємо один раз, якщо таблиця порожня.
   if ((await prisma.position.count()) === 0) {
@@ -53,90 +95,7 @@ async function main(): Promise<void> {
     console.log('Positions catalogue seeded');
   }
 
-  if (process.env.NODE_ENV === 'production') {
-    return;
-  }
-
-  const demoEmail = 'journalist@presspass.local';
-  const demoUser = await prisma.user.upsert({
-    where: { email: demoEmail },
-    update: {},
-    create: {
-      email: demoEmail,
-      passwordHash: await argon2.hash('ChangeMe_Demo1!'),
-      role: Role.JOURNALIST,
-      emailVerifiedAt: new Date(),
-      journalist: {
-        create: {
-          fullName: 'Іван Петренко',
-          fullNameEn: 'Ivan Petrenko',
-        },
-      },
-    },
-  });
-
-  const journalist = await prisma.journalist.findUniqueOrThrow({
-    where: { userId: demoUser.id },
-  });
-
-  // Демо-редакція (компанія-емітент). Логотип додається адміністратором.
-  const editorial =
-    (await prisma.editorial.findFirst({ where: { name: 'ТОВ «Приклад Медіа»' } })) ??
-    (await prisma.editorial.create({
-      data: {
-        name: 'ТОВ «Приклад Медіа»',
-        displayNameUk: 'Онлайн-медіа «Приклад»',
-        displayNameEn: '«Pryklad» Media',
-        edrpou: '12345678',
-        website: 'https://pryklad.media/registry',
-        director: 'Сидоренко Олексій Петрович',
-        email: 'office@pryklad.media',
-        address: 'м. Київ, вул. Хрещатик, 1',
-        phone: '+380441234567',
-      },
-    }));
-
-  // Демо редакційний адміністратор, прив'язаний до редакції.
-  const editorialAdminEmail = 'editor@presspass.local';
-  await prisma.user.upsert({
-    where: { email: editorialAdminEmail },
-    update: { role: Role.EDITORIAL_ADMIN, editorialId: editorial.id, emailVerifiedAt: new Date() },
-    create: {
-      email: editorialAdminEmail,
-      passwordHash: await argon2.hash('ChangeMe_Editor1!'),
-      role: Role.EDITORIAL_ADMIN,
-      editorialId: editorial.id,
-      emailVerifiedAt: new Date(),
-    },
-  });
-  console.log(`Demo editorial admin ready: ${editorialAdminEmail}`);
-
-  const existingCard = await prisma.card.findFirst({
-    where: { journalistId: journalist.id },
-  });
-
-  if (!existingCard) {
-    const now = new Date();
-    const expire = new Date(now);
-    expire.setFullYear(expire.getFullYear() + 1);
-
-    const card = await prisma.card.create({
-      data: {
-        uuid: uuidv7(),
-        journalistId: journalist.id,
-        editorialId: editorial.id,
-        position: 'Кореспондент',
-        positionEn: 'Correspondent',
-        cardNumber: `PP-${now.getFullYear()}-000001`,
-        issueDate: now,
-        expireDate: expire,
-        status: CardStatus.ACTIVE,
-      },
-    });
-    console.log(`Demo card created: ${card.cardNumber} (${card.uuid})`);
-  }
-
-  console.log(`Demo journalist ready: ${demoEmail}`);
+  // Demo identities are intentionally not seeded: meaningful data must never be plaintext.
 }
 
 main()

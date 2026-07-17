@@ -57,6 +57,7 @@ export interface AdminAccount {
 export interface CreateAdminInput {
   email: string;
   password: string;
+  encryptionPassphrase: string;
   role?: 'ADMIN' | 'EDITORIAL_ADMIN';
   editorialId?: number;
 }
@@ -139,6 +140,11 @@ export interface CardEditorial {
 export interface LoginResponse {
   accessToken: string;
   user: UserProfile;
+  /** Opaque short-lived API unlock token; never contains encryption key material. */
+  unlockToken?: string;
+  unlockExpiresAt?: string;
+  /** Google-only accounts must enroll a separate encryption passphrase. */
+  encryptionEnrollmentRequired?: boolean;
 }
 
 /** POST /auth/register and /auth/resend-code response. */

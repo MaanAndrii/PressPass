@@ -70,7 +70,7 @@ export interface CardTheme {
   accentColor: string;
   backgroundColor: string;
   textColor: string;
-  /** Logo image path (served from /uploads/branding) or null for none. */
+  /** Public icon or short-lived protected-media path, or null for none. */
   logoSrc: string | null;
   /** Whether the logo is shown on the card at all. */
   showLogo: boolean;

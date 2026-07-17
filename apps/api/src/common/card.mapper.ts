@@ -5,8 +5,8 @@ import { mapCardEditorial } from './editorial.mapper';
 import { mapJournalist } from './journalist.mapper';
 
 /** Formats a Date as YYYY-MM-DD (dates are stored as DATE columns). */
-export function toIsoDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+export function toIsoDate(date: Date | string): string {
+  return (typeof date === 'string' ? new Date(date) : date).toISOString().slice(0, 10);
 }
 
 /** Card with the relations the mapper needs. */
@@ -21,9 +21,9 @@ export function mapCard(card: CardWithRelations, verifyBaseUrl: string): CardRes
     id: card.id,
     uuid: card.uuid,
     cardNumber: card.cardNumber,
-    issueDate: toIsoDate(card.issueDate),
-    expireDate: toIsoDate(card.expireDate),
-    status: effectiveCardStatus(card.status, card.expireDate),
+    issueDate: toIsoDate(card.issueDate!),
+    expireDate: toIsoDate(card.expireDate!),
+    status: effectiveCardStatus(card.status, card.expireDate!),
     position: card.position,
     positionEn: card.positionEn,
     verifyUrl: buildVerifyUrl(verifyBaseUrl, card.uuid),

@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import type { Role } from '@presspass/shared';
 
 import { generateJournalistPublicId } from '../common/public-id';
+import { BlindIndexService } from '../crypto/blind-index.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { JwtPayload } from './auth.types';
 
@@ -30,6 +31,7 @@ export class GoogleAuthService {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly blindIndexes: BlindIndexService,
   ) {}
 
   get enabled(): boolean {
@@ -98,9 +100,8 @@ export class GoogleAuthService {
       throw new BadRequestException('Google sign-in failed');
     }
 
-    // id_token отримано напряму від Google по TLS — підпис перевіряти не потрібно.
     const { id_token: idToken } = (await tokenResponse.json()) as { id_token?: string };
-    const payload = this.decodeIdToken(idToken);
+    const payload = await this.verifyIdToken(idToken);
     if (!payload.email || payload.email_verified === false) {
       throw new BadRequestException('Google account has no verified email');
     }
@@ -108,50 +109,72 @@ export class GoogleAuthService {
     const user = await this.findOrCreateUser(payload);
     const jwt: JwtPayload = {
       sub: user.id,
-      email: user.email,
+      email: this.blindIndexes.normalizeEmail(payload.email),
       role: user.role as Role,
       editorialId: user.editorialId,
       tokenVersion: user.tokenVersion,
     };
     const accessToken = await this.jwtService.signAsync(jwt);
-    return `${this.siteBaseUrl}/auth/callback#token=${encodeURIComponent(accessToken)}`;
+    return `${this.siteBaseUrl}/auth/callback#token=${encodeURIComponent(accessToken)}&enrollment=${user.dataKeyEnvelope ? '0' : '1'}&user=${user.id}&role=${user.role}&editorial=${user.editorialId ?? ''}`;
   }
 
-  private decodeIdToken(idToken: string | undefined): GoogleIdTokenPayload {
-    const body = idToken?.split('.')[1];
-    if (!body) {
-      throw new BadRequestException('Google sign-in failed');
+  private async verifyIdToken(idToken: string | undefined): Promise<GoogleIdTokenPayload> {
+    if (!idToken) throw new BadRequestException('Google sign-in failed');
+    const response = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`,
+    );
+    if (!response.ok) throw new BadRequestException('Invalid Google ID token');
+    const payload = (await response.json()) as GoogleIdTokenPayload & {
+      aud?: string;
+      iss?: string;
+    };
+    const issuerValid =
+      payload.iss === 'https://accounts.google.com' || payload.iss === 'accounts.google.com';
+    if (payload.aud !== this.config.get<string>('GOOGLE_CLIENT_ID') || !issuerValid) {
+      throw new BadRequestException('Invalid Google ID token');
     }
-    return JSON.parse(Buffer.from(body, 'base64url').toString()) as GoogleIdTokenPayload;
+    return payload;
   }
 
   private async findOrCreateUser(payload: GoogleIdTokenPayload) {
-    const email = payload.email!.toLowerCase();
+    const email = this.blindIndexes.normalizeEmail(payload.email!);
+    const emailBlindIndex = this.blindIndexes.email(email);
 
-    const byGoogleId = await this.prisma.user.findUnique({ where: { googleId: payload.sub } });
+    const googleIdBlindIndex = this.blindIndexes.value('google-id', payload.sub);
+    const byGoogleId = await this.prisma.user.findFirst({
+      where: { OR: [{ googleIdBlindIndex }, { googleId: payload.sub }] },
+    });
     if (byGoogleId) {
       return byGoogleId;
     }
 
-    const byEmail = await this.prisma.user.findUnique({ where: { email } });
+    const byEmail = await this.prisma.user.findFirst({
+      where: { OR: [{ emailBlindIndex }, { email }] },
+    });
     if (byEmail) {
       // Той самий email, зареєстрований паролем: привʼязуємо Google-акаунт.
       return this.prisma.user.update({
         where: { id: byEmail.id },
-        data: { googleId: payload.sub, emailVerifiedAt: byEmail.emailVerifiedAt ?? new Date() },
+        data: {
+          googleId: googleIdBlindIndex,
+          googleIdBlindIndex,
+          emailVerifiedAt: byEmail.emailVerifiedAt ?? new Date(),
+        },
       });
     }
 
     return this.prisma.user.create({
       data: {
-        email,
-        googleId: payload.sub,
+        email: emailBlindIndex,
+        emailBlindIndex,
+        googleId: googleIdBlindIndex,
+        googleIdBlindIndex,
         role: 'JOURNALIST',
         emailVerifiedAt: new Date(),
         journalist: {
           create: {
             selfRegistered: true,
-            fullName: payload.name ?? '',
+            fullName: '',
             publicId: generateJournalistPublicId(),
           },
         },

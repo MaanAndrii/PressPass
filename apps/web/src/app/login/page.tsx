@@ -8,13 +8,14 @@ import { type FormEvent, Suspense, useEffect, useState } from 'react';
 
 import { api, ApiError } from '@/lib/api';
 import { API_URL } from '@/lib/config';
-import { saveSession } from '@/lib/auth';
+import { saveSession, saveUnlockToken } from '@/lib/auth';
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [encryptionPassphrase, setEncryptionPassphrase] = useState('');
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [error, setError] = useState<string | null>(
     searchParams.get('error') === 'google'
@@ -39,8 +40,18 @@ function LoginForm() {
         body: { email, password },
         auth: false,
       });
-      saveSession(result.accessToken, result.user);
+      saveSession(result.accessToken, result.user, result.unlockToken);
       if (isAdminRole(result.user.role)) {
+        if (!encryptionPassphrase)
+          throw new ApiError(400, 'Введіть окрему криптографічну фразу адміністратора');
+        const endpoint = result.encryptionEnrollmentRequired
+          ? '/encryption/enroll'
+          : '/encryption/unlock';
+        const unlocked = await api<{ unlockToken: string }>(endpoint, {
+          method: 'POST',
+          body: { passphrase: encryptionPassphrase },
+        });
+        saveUnlockToken(unlocked.unlockToken);
         router.replace('/admin');
       } else if (result.user.journalist && !result.user.journalist.profileComplete) {
         router.replace('/profile');
@@ -83,6 +94,14 @@ function LoginForm() {
             minLength={8}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+          />
+          <Field
+            label="Криптографічна фраза (лише для адміністратора)"
+            type="password"
+            autoComplete="off"
+            minLength={12}
+            value={encryptionPassphrase}
+            onChange={(e) => setEncryptionPassphrase(e.target.value)}
           />
           {error && <p className="text-sm text-red-600">{error}</p>}
           <Button type="submit" disabled={loading} className="w-full">

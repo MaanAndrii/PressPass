@@ -1,46 +1,37 @@
 'use client';
-
-import type { UserProfile } from '@presspass/shared';
+import type { Role, UserProfile } from '@presspass/shared';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-
-import { ApiError } from '@/lib/api';
-import { API_URL } from '@/lib/config';
 import { saveSession } from '@/lib/auth';
-
-/**
- * Завершення входу через Google: API повертає сюди з JWT у фрагменті URL
- * (#token=...), який не потрапляє ні в логи сервера, ні в історію проксі.
- */
 export default function AuthCallbackPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
-
   useEffect(() => {
-    const token = new URLSearchParams(window.location.hash.slice(1)).get('token');
-    if (!token) {
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    const token = fragment.get('token');
+    const id = Number(fragment.get('user'));
+    const role = fragment.get('role') as Role | null;
+    if (!token || !id || !role) {
       setError('Токен не отримано. Спробуйте увійти ще раз.');
       return;
     }
-    // Токен ще не в сховищі — профіль запитуємо явно з ним.
-    fetch(`${API_URL}/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new ApiError(response.status, 'Не вдалося отримати профіль');
-        }
-        const user = (await response.json()) as UserProfile;
-        saveSession(token, user);
-        if (user.role === 'ADMIN') {
-          router.replace('/admin');
-        } else if (user.journalist && !user.journalist.profileComplete) {
-          router.replace('/profile');
-        } else {
-          router.replace('/card');
-        }
-      })
-      .catch(() => setError('Не вдалося завершити вхід. Спробуйте ще раз.'));
+    const user: UserProfile = {
+      id,
+      email: '',
+      role,
+      emailVerified: true,
+      editorialId: fragment.get('editorial') ? Number(fragment.get('editorial')) : null,
+      journalist: null,
+      memberships: [],
+    };
+    saveSession(token, user);
+    sessionStorage.setItem(
+      'presspass.encryptionEnrollment',
+      fragment.get('enrollment') === '1' ? '1' : '0',
+    );
+    history.replaceState(null, '', location.pathname);
+    router.replace('/encryption');
   }, [router]);
-
   return (
     <main className="flex min-h-screen items-center justify-center p-4">
       {error ? (

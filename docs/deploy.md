@@ -91,23 +91,211 @@ sudo PP_DOMAIN=pass.example.ua PP_ADMIN_DOMAIN=admin.pass.example.ua PP_ACCESS=p
 
 ## Оновлення
 
+### Поверх старої інсталяції на VPS
+
+Не запускайте `deploy/install.sh` поверх робочої інсталяції: для оновлення використовуйте наведений
+нижче порядок. Він зберігає поточний `.env` і uploads, робить backup перед міграціями та дозволяє
+повернути код до попереднього коміту. Команди розраховані на стандартне розміщення
+`/opt/presspass` і PostgreSQL-базу `presspass`.
+
+> Перед оновленням переконайтеся, що маєте вільне місце щонайменше для двох копій БД та uploads.
+> Не продовжуйте, якщо `pg_dump` або перевірка архіву завершилися помилкою.
+
+1. Підключіться по SSH, перейдіть у каталог застосунку і зафіксуйте поточну версію:
+
+```bash
+sudo -i
+cd /opt/presspass
+git status --short
+git rev-parse HEAD | tee /root/presspass-before-upgrade.txt
+pm2 status
+```
+
+`git status --short` має бути порожнім. Якщо є локальні зміни, спочатку збережіть і проаналізуйте
+їх — `git reset --hard` видалить їх без можливості відновлення.
+
+2. Збережіть конфігурацію, БД і файли:
+
+```bash
+BACKUP_DIR="/root/presspass-backup-$(date -u +%Y%m%dT%H%M%SZ)"
+install -d -m 700 "$BACKUP_DIR"
+cp -a .env "$BACKUP_DIR/.env"
+pg_dump --format=custom --file="$BACKUP_DIR/presspass.dump" \
+  "$(sed -n 's/^DATABASE_URL=//p' .env)"
+tar --create --gzip --file="$BACKUP_DIR/uploads.tar.gz" uploads
+pg_restore --list "$BACKUP_DIR/presspass.dump" >/dev/null
+tar --test-label --file="$BACKUP_DIR/uploads.tar.gz" >/dev/null
+sha256sum "$BACKUP_DIR/presspass.dump" "$BACKUP_DIR/uploads.tar.gz" \
+  >"$BACKUP_DIR/SHA256SUMS"
+```
+
+Якщо пароль PostgreSQL у `DATABASE_URL` містить символи, які URL-кодуються, використовуйте замість
+останнього аргументу `pg_dump` звичні `-h`, `-U`, `-d` та `PGPASSWORD`. Не друкуйте `.env` або URL
+бази в shell history чи в чат підтримки.
+
+3. Завантажте новий код без автоматичного merge і перевірте, що потрібна версія доступна:
+
+```bash
+git fetch --prune origin
+git log --oneline --decorate HEAD..origin/main
+git checkout main
+git pull --ff-only origin main
+```
+
+Якщо інсталяція відстежує іншу production-гілку або tag, підставте її замість `main`.
+
+4. Встановіть залежності, згенеруйте Prisma Client і виконайте перевірки **до** зміни БД:
+
+```bash
+npm ci --no-audit --no-fund
+npx prisma generate
+npm run lint
+npm run format
+npm test
+npm run build
+```
+
+5. Додайте незалежний blind-index key. Не використовуйте для нього `JWT_SECRET` або
+   `DATA_KEY_SECRET`:
+
+```bash
+cd /opt/presspass
+grep -q '^LOOKUP_KEY=' .env || {
+  umask 077
+  printf 'LOOKUP_KEY=%s\n' "$(openssl rand -hex 32)" >>.env
+}
+```
+
+6. Зупиніть застосунок на maintenance window і введіть owner/recovery passphrases. Вони навмисно
+   **не записуються в `.env`**:
+
+```bash
+pm2 stop presspass-api presspass-web
+read -rsp 'Окрема crypto-фраза Superadmin: ' ADMIN_ENCRYPTION_PASSPHRASE; echo
+read -rsp 'Offline recovery passphrase #1: ' SUPERADMIN_RECOVERY_PASSPHRASE_1; echo
+read -rsp 'Offline recovery passphrase #2: ' SUPERADMIN_RECOVERY_PASSPHRASE_2; echo
+export ADMIN_ENCRYPTION_PASSPHRASE
+export SUPERADMIN_RECOVERY_PASSPHRASE_1
+export SUPERADMIN_RECOVERY_PASSPHRASE_2
+export RECOVERY_KIT_OUTPUT="/root/presspass-recovery-kits-$(date -u +%Y%m%dT%H%M%SZ).json"
+```
+
+Crypto-фраза адміністратора має відрізнятися від login password. Дві recovery passphrase також
+мають бути незалежними. Не вставляйте їх у shell command line, де їх побачить `ps` або history.
+
+7. Застосуйте additive schema, ініціалізуйте owner keys, виконайте resumable backfill і обов'язкову
+   перевірку відсутності plaintext:
+
+```bash
+npx prisma migrate status
+npx prisma migrate deploy
+NODE_ENV=production npm run db:seed
+npm run security:backfill
+npm run security:verify
+test -s "$RECOVERY_KIT_OUTPUT" && chmod 600 "$RECOVERY_KIT_OUTPUT"
+sudo bash deploy/disable-static-uploads.sh
+unset ADMIN_ENCRYPTION_PASSPHRASE
+unset SUPERADMIN_RECOVERY_PASSPHRASE_1
+unset SUPERADMIN_RECOVERY_PASSPHRASE_2
+```
+
+`security:backfill` можна безпечно продовжити після виправлення помилки. Не запускайте стару версію
+застосунку після початку backfill: частина legacy columns уже може бути очищена. Якщо verifier не
+пройшов, production залишається в maintenance mode.
+
+Bundle містить одноразові recovery kits, список `recoveryOnlyUsers` для legacy Google-only accounts
+та `adminEnrollmentPassphrases` для наявних адміністраторів, які ще не мали окремого Admin KEK.
+Передайте кожному такому адміністратору його тимчасову фразу захищеним каналом і вимагайте негайний
+`change-passphrase`. Скопіюйте bundle з VPS, перевірте recovery на staging, збережіть дві recovery
+копії офлайн окремо від passphrases, а серверну копію безпечно видаліть.
+`disable-static-uploads.sh` прибирає старий Nginx `location /uploads/`, перевіряє конфігурацію та
+перезавантажує Nginx. Не пропускайте цей крок: інакше старий alias продовжить обходити API.
+
+8. Зберіть новий код, перезапустіть процеси:
+
+```bash
+npm run build
+pm2 restart presspass-api presspass-web --update-env
+pm2 save
+```
+
+Не запускайте `prisma migrate dev`, `prisma db push` або повторний seed на production.
+
+9. Перевірте процеси та HTTP-відповіді:
+
+```bash
+pm2 status
+pm2 logs presspass-api --lines 100 --nostream
+curl --fail --silent --show-error http://127.0.0.1:3000/ >/dev/null
+curl --fail --silent --show-error http://127.0.0.1:3001/docs-json >/dev/null
+nginx -t
+```
+
+Після цього вручну перевірте через публічний HTTPS-домен: login, `/card`, адмінку, відкриття фото,
+створення свіжого QR та `/verify/...`. Старі активні сесії можуть вимагати повторного входу після
+security-оновлень.
+
+#### Відкат
+
+Якщо міграції **ще не застосовувалися**, поверніть код і процеси:
+
+```bash
+cd /opt/presspass
+git checkout "$(cat /root/presspass-before-upgrade.txt)"
+npm ci --no-audit --no-fund
+npx prisma generate
+npm run build
+pm2 restart presspass-api presspass-web --update-env
+```
+
+Після застосування міграцій не використовуйте довільний `prisma migrate resolve` і не відкочуйте
+лише код: новий schema contract може бути несумісним зі старим застосунком. Зупиніть процеси,
+відновіть **узгоджену пару** старого коду, database dump та uploads у maintenance window. Перед
+відновленням збережіть окрему копію невдало оновленого стану для аналізу.
+
+```bash
+pm2 stop presspass-api presspass-web
+# Команди нижче руйнівні: перевірте BACKUP_DIR і назву БД перед виконанням.
+dropdb --if-exists presspass
+createdb --owner=presspass presspass
+pg_restore --clean --if-exists --no-owner --dbname=presspass \
+  "$BACKUP_DIR/presspass.dump"
+rm -rf /opt/presspass/uploads
+tar --extract --gzip --file="$BACKUP_DIR/uploads.tar.gz" --directory=/opt/presspass
+git checkout "$(cat /root/presspass-before-upgrade.txt)"
+npm ci --no-audit --no-fund
+npx prisma generate
+npm run build
+pm2 restart presspass-api presspass-web --update-env
+```
+
+Якщо production використовує нестандартну назву/власника БД, адаптуйте `dropdb`, `createdb` і
+`pg_restore` до `DATABASE_URL`. Спершу відрепетируйте restore на окремій тестовій БД.
+
+### Швидке оновлення без ручного backup
+
+Для dev/demo-сервера, де втрата даних прийнятна:
+
 ```bash
 sudo bash /opt/presspass/deploy/update.sh
 ```
 
 (= `git pull` → `npm ci` → `prisma migrate deploy` → `npm run build` → `pm2 restart`.)
 
+Поточний `update.sh` не створює backup, не виконує health check і не забезпечує rollback, тому для
+production використовуйте повну процедуру вище.
+
 ## Що де знаходиться після встановлення
 
-| Що            | Де                                            |
-| ------------- | --------------------------------------------- |
-| Застосунок    | `/opt/presspass`                              |
-| Конфігурація  | `/opt/presspass/.env` (права 600)             |
-| Фотографії    | `/opt/presspass/uploads/photos/`              |
-| Nginx-конфіг  | `/etc/nginx/sites-available/presspass`        |
-| Процеси       | `pm2 status`, логи: `pm2 logs presspass-api`  |
-| Сайт          | `https://домен/` (адмінка — `/admin`)         |
-| API + Swagger | `https://домен/api`, `https://домен/api/docs` |
+| Що               | Де                                            |
+| ---------------- | --------------------------------------------- |
+| Застосунок       | `/opt/presspass`                              |
+| Конфігурація     | `/opt/presspass/.env` (права 600)             |
+| Ciphertext-файли | `/opt/presspass/uploads/encrypted/`           |
+| Nginx-конфіг     | `/etc/nginx/sites-available/presspass`        |
+| Процеси          | `pm2 status`, логи: `pm2 logs presspass-api`  |
+| Сайт             | `https://домен/` (адмінка — `/admin`)         |
+| API + Swagger    | `https://домен/api`, `https://домен/api/docs` |
 
 ## Ручне встановлення
 
@@ -143,6 +331,9 @@ cp .env.example .env && nano .env
 ```env
 DATABASE_URL=postgresql://presspass:СИЛЬНИЙ_ПАРОЛЬ@localhost:5432/presspass?schema=public
 JWT_SECRET=<openssl rand -hex 32>
+DATA_KEY_SECRET=<чинне legacy-значення або openssl rand -hex 32 для нової БД>
+LOOKUP_KEY=<openssl rand -hex 32>
+ADMIN_ENCRYPTION_PASSPHRASE=<окрема довга crypto-фраза адміністратора>
 CORS_ORIGIN=https://id.domain.ua
 VERIFY_BASE_URL=https://id.domain.ua
 UPLOADS_DIR=/opt/presspass/uploads      # абсолютний шлях!
@@ -157,6 +348,14 @@ API_INTERNAL_URL=http://127.0.0.1:3001  # SSR-сторінки ходять до
 ```bash
 npx prisma migrate deploy
 NODE_ENV=production npm run db:seed
+read -rsp 'Offline recovery passphrase #1: ' SUPERADMIN_RECOVERY_PASSPHRASE_1; echo
+read -rsp 'Offline recovery passphrase #2: ' SUPERADMIN_RECOVERY_PASSPHRASE_2; echo
+export SUPERADMIN_RECOVERY_PASSPHRASE_1 SUPERADMIN_RECOVERY_PASSPHRASE_2
+export RECOVERY_KIT_OUTPUT="/root/presspass-recovery-kits-$(date -u +%Y%m%dT%H%M%SZ).json"
+npm run security:backfill
+npm run security:verify
+chmod 600 "$RECOVERY_KIT_OUTPUT"
+unset SUPERADMIN_RECOVERY_PASSPHRASE_1 SUPERADMIN_RECOVERY_PASSPHRASE_2
 npm run build
 
 cd /opt/presspass/apps/api && pm2 start dist/main.js --name presspass-api
@@ -164,9 +363,12 @@ cd /opt/presspass/apps/web && pm2 start npm --name presspass-web -- start
 pm2 save && pm2 startup
 ```
 
+До запуску API винесіть `$RECOVERY_KIT_OUTPUT` із VPS, роздільно збережіть обидві passphrase,
+перевірте recovery на staging-копії та видаліть серверну копію kit bundle.
+
 ### 5. Nginx + HTTPS
 
-Конфіг — як у `deploy/install.sh` (блок `location /api/` з `proxy_pass http://127.0.0.1:3001/` — слеш у кінці зрізає префікс `/api`; `/uploads/` — `alias` на каталог з фото; решта — на `127.0.0.1:3000`). Потім:
+Конфіг — як у `deploy/install.sh` (блок `location /api/` з `proxy_pass http://127.0.0.1:3001/` — слеш у кінці зрізає префікс `/api`; direct `/uploads/` відсутній; решта — на `127.0.0.1:3000`). Потім:
 
 ```bash
 sudo ln -s /etc/nginx/sites-available/presspass /etc/nginx/sites-enabled/
@@ -179,7 +381,7 @@ sudo certbot --nginx -d id.domain.ua
 
 - **QR веде не туди** — `VERIFY_BASE_URL` у `.env` має бути публічною адресою сайту; змінюється без перезбірки (потрібен лише `pm2 restart presspass-api`).
 - **«Не вдалося увійти. Спробуйте ще раз.»** — фронтенд не достукується до API: у збірку потрапив неправильний `NEXT_PUBLIC_API_URL`. Переконайтеся, що в `.env` стоїть `NEXT_PUBLIC_API_URL=/api`, і виконайте `npm run build` + `pm2 restart presspass-web` (або просто перезапустіть `sudo bash deploy/install.sh`).
-- **Фото не відображаються** — `UPLOADS_DIR` має бути абсолютним шляхом і збігатися з `alias` у Nginx.
+- **Фото не відображаються** — перевірте unlock session, `UPLOADS_DIR`, права `0700` каталогу `uploads/encrypted` і відсутність старого Nginx alias `/uploads/`.
 - **502 від Nginx** — процес не запущено: `pm2 status`, `pm2 logs presspass-api`.
 - **`ERR_TOO_MANY_REDIRECTS` (нескінченний редирект)** — сайт за зовнішнім HTTPS-проксі (KeenDNS «через хмару»), але Nginx налаштований на редирект HTTP→HTTPS. Виконайте `sudo bash deploy/set-proxy-mode.sh <домен>`.
 - **404 від Nginx при відкритті за IP** — наслідок `return 404`, який додає certbot для чужого Host; `deploy/enable-https.sh` замінює його на редирект. Для проксі-режиму використовуйте `set-proxy-mode.sh`.

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, ParseIntPipe, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { AdminAccount } from '@presspass/shared';
 
@@ -23,8 +23,12 @@ export class AdminsController {
 
   @Post()
   @ApiOperation({ summary: 'Create an editorial-bound administrator' })
-  create(@Body() dto: CreateAdminDto): Promise<AdminAccount> {
-    return this.admins.create(dto);
+  create(
+    @Body() dto: CreateAdminDto,
+    @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
+  ): Promise<AdminAccount> {
+    return this.admins.create(dto, user, unlock);
   }
 
   @Delete(':id')

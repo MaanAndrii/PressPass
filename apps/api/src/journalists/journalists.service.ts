@@ -13,6 +13,12 @@ import type { JwtPayload } from '../auth/auth.types';
 import { toIsoDate } from '../common/card.mapper';
 import { generateJournalistPublicId, normalizePublicId } from '../common/public-id';
 import { UserKeyMaterialService } from '../crypto/user-key-material.service';
+import { BlindIndexService } from '../crypto/blind-index.service';
+import { UnlockSessionService } from '../crypto/unlock-session.service';
+import { DomainPayloadService } from '../crypto/domain-payload.service';
+import { KeyHierarchyService } from '../crypto/key-hierarchy.service';
+import { EncryptedFileService } from '../crypto/encrypted-file.service';
+import { PublicMediaCacheService } from '../crypto/public-media-cache.service';
 import { EditorialKeyGrantService } from '../crypto/editorial-key-grant.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AttachJournalistDto } from './dto/attach-journalist.dto';
@@ -37,6 +43,12 @@ export class JournalistsService {
     private readonly prisma: PrismaService,
     private readonly userKeys: UserKeyMaterialService,
     private readonly editorialGrants: EditorialKeyGrantService,
+    private readonly blindIndexes: BlindIndexService,
+    private readonly sessions: UnlockSessionService,
+    private readonly payloads: DomainPayloadService,
+    private readonly hierarchy: KeyHierarchyService,
+    private readonly files: EncryptedFileService,
+    private readonly publicMedia: PublicMediaCacheService,
   ) {}
 
   /**
@@ -44,7 +56,7 @@ export class JournalistsService {
    * journalists who are members of their own editorial — self-registered and
    * other editorials' journalists stay private.
    */
-  async findAll(actor: JwtPayload): Promise<AdminJournalist[]> {
+  async findAll(actor: JwtPayload, unlock?: string): Promise<AdminJournalist[]> {
     const journalists = await this.prisma.journalist.findMany({
       where:
         actor.role === 'EDITORIAL_ADMIN'
@@ -53,12 +65,18 @@ export class JournalistsService {
       include: ADMIN_INCLUDE,
       orderBy: { id: 'asc' },
     });
-    return journalists.map((journalist) => this.toAdminDto(journalist));
+    return Promise.all(journalists.map((journalist) => this.toAdminDto(journalist, actor, unlock)));
   }
 
-  async create(dto: CreateJournalistDto, actor: JwtPayload): Promise<AdminJournalist> {
-    const email = dto.email.toLowerCase().trim();
-    const existing = await this.prisma.user.findUnique({ where: { email } });
+  async create(
+    dto: CreateJournalistDto,
+    actor: JwtPayload,
+    unlock?: string,
+  ): Promise<AdminJournalist> {
+    const email = this.blindIndexes.normalizeEmail(dto.email);
+    const existing = await this.prisma.user.findFirst({
+      where: { OR: [{ emailBlindIndex: this.blindIndexes.email(email) }, { email }] },
+    });
     if (existing) {
       throw new ConflictException('A user with this email already exists');
     }
@@ -77,7 +95,8 @@ export class JournalistsService {
           nszhuMember: dto.nszhuMember ?? undefined,
           user: {
             create: {
-              email,
+              email: this.blindIndexes.email(email),
+              emailBlindIndex: this.blindIndexes.email(email),
               passwordHash,
               role: 'JOURNALIST' as Role,
               // Створені адміністратором акаунти не потребують підтвердження email.
@@ -91,21 +110,94 @@ export class JournalistsService {
         },
         include: ADMIN_INCLUDE,
       });
-      const keyMaterial = await this.userKeys.provision(created.userId, dto.password);
-      await tx.user.update({ where: { id: created.userId }, data: keyMaterial });
+      const keyMaterial = await this.userKeys.provision(
+        created.userId,
+        dto.password,
+        { email },
+        (key) => this.hierarchy.wrapOwnerForRecovery('user', String(created.userId), key, tx),
+      );
+      await tx.user.update({
+        where: { id: created.userId },
+        data: { ...keyMaterial, email: this.blindIndexes.email(email) },
+      });
       return created;
     });
-    if (journalist.memberships.length > 0) {
-      await this.editorialGrants.syncFromRecovery(journalist.userId);
+    const profileKey = await this.userKeys.unlock(
+      journalist.userId,
+      dto.password,
+      journalist.user.passwordKdf,
+      journalist.user.dataKeyEnvelope,
+    );
+    try {
+      const encryptedData = this.payloads.encrypt(
+        'journalist',
+        journalist.id,
+        `user:${journalist.userId}`,
+        this.legacyData(journalist),
+        profileKey,
+      );
+      await this.prisma.journalist.update({
+        where: { id: journalist.id },
+        data: {
+          encryptedData,
+          fullName: '',
+          fullNameEn: '',
+          position: '',
+          positionEn: '',
+          organization: '',
+          organizationEn: '',
+          birthDate: null,
+          passportData: null,
+          taxNumber: null,
+          phone: null,
+          photoPath: null,
+        },
+      });
+      if (journalist.memberships.length && actor.editorialId) {
+        const editorialKey = this.editorialKey(actor, unlock, actor.editorialId);
+        try {
+          await this.prisma.editorialDataKeyGrant.upsert({
+            where: {
+              userId_editorialId: { userId: journalist.userId, editorialId: actor.editorialId },
+            },
+            update: {
+              keyEnvelope: this.hierarchy.wrapProfileForEditorial(
+                journalist.userId,
+                actor.editorialId,
+                profileKey,
+                editorialKey,
+              ),
+            },
+            create: {
+              userId: journalist.userId,
+              editorialId: actor.editorialId,
+              keyEnvelope: this.hierarchy.wrapProfileForEditorial(
+                journalist.userId,
+                actor.editorialId,
+                profileKey,
+                editorialKey,
+              ),
+            },
+          });
+        } finally {
+          editorialKey.fill(0);
+        }
+      }
+      return this.toAdminDto(await this.loadForAdmin(journalist.id), actor, unlock, profileKey);
+    } finally {
+      profileKey.fill(0);
     }
-    return this.toAdminDto(journalist);
   }
 
   /**
    * Adds an existing journalist to a media by their public id. An editorial
    * admin adds to their own editorial; a system admin passes the target one.
    */
-  async attach(dto: AttachJournalistDto, actor: JwtPayload): Promise<AdminJournalist> {
+  async attach(
+    dto: AttachJournalistDto,
+    actor: JwtPayload,
+    unlock?: string,
+  ): Promise<AdminJournalist> {
     const editorialId =
       actor.role === 'EDITORIAL_ADMIN' ? (actor.editorialId ?? undefined) : dto.editorialId;
     if (!editorialId) {
@@ -127,12 +219,11 @@ export class JournalistsService {
       update: {},
       create: { editorialId, journalistId: journalist.id },
     });
-    await this.editorialGrants.syncFromRecovery(journalist.userId);
-    return this.toAdminDto(await this.loadForAdmin(journalist.id));
+    return this.toAdminDto(await this.loadForAdmin(journalist.id), actor, unlock);
   }
 
   /** Removes a journalist from the editorial admin's own media (not the account). */
-  async detach(id: number, actor: JwtPayload): Promise<AdminJournalist> {
+  async detach(id: number, actor: JwtPayload, unlock?: string): Promise<AdminJournalist> {
     if (actor.role !== 'EDITORIAL_ADMIN' || !actor.editorialId) {
       throw new ForbiddenException('Прибрати з редакції може лише редакційний адміністратор');
     }
@@ -143,53 +234,90 @@ export class JournalistsService {
     if (journalist) {
       await this.editorialGrants.revoke(journalist.userId, actor.editorialId);
     }
-    return this.toAdminDto(await this.loadForAdmin(id));
+    return this.toAdminDto(await this.loadForAdmin(id), actor, unlock);
   }
 
-  async update(id: number, dto: UpdateJournalistDto, actor: JwtPayload): Promise<AdminJournalist> {
-    const journalist = await this.prisma.journalist.findUnique({ where: { id } });
-    if (!journalist) {
-      throw new NotFoundException('Journalist not found');
-    }
+  async update(
+    id: number,
+    dto: UpdateJournalistDto,
+    actor: JwtPayload,
+    unlock?: string,
+  ): Promise<AdminJournalist> {
+    const journalist = await this.loadForAdmin(id);
     await this.assertManages(id, actor);
-
-    const userData: Prisma.UserUpdateInput = {};
-    if (dto.email) {
-      const email = dto.email.toLowerCase().trim();
-      const emailOwner = await this.prisma.user.findUnique({ where: { email } });
-      if (emailOwner && emailOwner.id !== journalist.userId) {
-        throw new ConflictException('A user with this email already exists');
-      }
-      userData.email = email;
-    }
-    if (dto.password) {
-      userData.passwordHash = await argon2.hash(dto.password);
-      const account = await this.prisma.user.findUnique({ where: { id: journalist.userId } });
-      const keyMaterial = account?.recoveryKeyEnvelope
-        ? await this.userKeys.resetWithRecovery(
-            journalist.userId,
-            dto.password,
-            account.recoveryKeyEnvelope,
+    const profile = await this.profileKey(journalist, actor, unlock);
+    try {
+      const current = journalist.encryptedData
+        ? this.payloads.decrypt<Record<string, unknown>>(
+            'journalist',
+            id,
+            `user:${journalist.userId}`,
+            journalist.encryptedData,
+            profile,
           )
-        : await this.userKeys.provision(journalist.userId, dto.password);
-      Object.assign(userData, keyMaterial, { tokenVersion: { increment: 1 } });
+        : this.legacyData(journalist);
+      const changes: Record<string, unknown> = {};
+      for (const field of [
+        'fullName',
+        'fullNameEn',
+        'passportData',
+        'taxNumber',
+        'phone',
+        'nszhuMember',
+      ] as const)
+        if (dto[field] !== undefined) changes[field] = dto[field];
+      if (dto.birthDate !== undefined) changes.birthDate = dto.birthDate;
+      const userData: Prisma.UserUpdateInput = {};
+      if (dto.email) {
+        const email = this.blindIndexes.normalizeEmail(dto.email);
+        const index = this.blindIndexes.email(email);
+        const owner = await this.prisma.user.findFirst({ where: { emailBlindIndex: index } });
+        if (owner && owner.id !== journalist.userId)
+          throw new ConflictException('A user with this email already exists');
+        userData.email = index;
+        userData.emailBlindIndex = index;
+        userData.encryptedData = this.userKeys.encryptUserData(
+          journalist.userId,
+          { email },
+          profile,
+        );
+      }
+      if (dto.password) {
+        userData.passwordHash = await argon2.hash(dto.password);
+        Object.assign(
+          userData,
+          await this.userKeys.wrapExisting(journalist.userId, dto.password, profile),
+          { tokenVersion: { increment: 1 } },
+        );
+      }
+      await this.prisma.journalist.update({
+        where: { id },
+        data: {
+          encryptedData: this.payloads.encrypt(
+            'journalist',
+            id,
+            `user:${journalist.userId}`,
+            { ...current, ...changes },
+            profile,
+          ),
+          fullName: '',
+          fullNameEn: '',
+          position: '',
+          positionEn: '',
+          organization: '',
+          organizationEn: '',
+          birthDate: null,
+          passportData: null,
+          taxNumber: null,
+          phone: null,
+          nszhuMember: false,
+          ...(Object.keys(userData).length ? { user: { update: userData } } : {}),
+        },
+      });
+      return this.toAdminDto(await this.loadForAdmin(id), actor, unlock, profile);
+    } finally {
+      profile.fill(0);
     }
-
-    const updated = await this.prisma.journalist.update({
-      where: { id },
-      data: {
-        fullName: dto.fullName,
-        fullNameEn: dto.fullNameEn,
-        birthDate: dto.birthDate ? new Date(dto.birthDate) : undefined,
-        passportData: dto.passportData,
-        taxNumber: dto.taxNumber,
-        phone: dto.phone,
-        nszhuMember: dto.nszhuMember,
-        ...(Object.keys(userData).length > 0 ? { user: { update: userData } } : {}),
-      },
-      include: ADMIN_INCLUDE,
-    });
-    return this.toAdminDto(updated);
   }
 
   /** Deletes the journalist together with the login account and all cards (cascade). */
@@ -198,23 +326,58 @@ export class JournalistsService {
     if (!journalist) {
       throw new NotFoundException('Journalist not found');
     }
+    await this.files.removeOwner('user', String(journalist.userId));
     await this.prisma.user.delete({ where: { id: journalist.userId } });
     return { success: true };
   }
 
-  /** Stores the uploaded photo path (files live on disk, not in PostgreSQL). */
-  async setPhoto(id: number, photoPath: string, actor: JwtPayload): Promise<AdminJournalist> {
-    const journalist = await this.prisma.journalist.findUnique({ where: { id } });
-    if (!journalist) {
-      throw new NotFoundException('Journalist not found');
-    }
+  /** Encrypts an administrator-uploaded photo with the profile DEK. */
+  async setPhoto(
+    id: number,
+    bytes: Buffer,
+    mimeType: string,
+    actor: JwtPayload,
+    unlock?: string,
+  ): Promise<AdminJournalist> {
+    const journalist = await this.loadForAdmin(id);
     await this.assertManages(id, actor);
-    const updated = await this.prisma.journalist.update({
-      where: { id },
-      data: { photoPath },
-      include: ADMIN_INCLUDE,
-    });
-    return this.toAdminDto(updated);
+    const profile = await this.profileKey(journalist, actor, unlock);
+    try {
+      const fileId = await this.files.store({
+        ownerType: 'user',
+        ownerId: String(journalist.userId),
+        purpose: 'profile-photo',
+        mimeType,
+        bytes,
+        ownerKey: profile,
+      });
+      const current = journalist.encryptedData
+        ? this.payloads.decrypt<Record<string, unknown>>(
+            'journalist',
+            id,
+            `user:${journalist.userId}`,
+            journalist.encryptedData,
+            profile,
+          )
+        : this.legacyData(journalist);
+      await this.prisma.journalist.update({
+        where: { id },
+        data: {
+          photoPath: null,
+          encryptedData: this.payloads.encrypt(
+            'journalist',
+            id,
+            `user:${journalist.userId}`,
+            { ...current, photoPath: `/media/${fileId}` },
+            profile,
+          ),
+        },
+      });
+      await this.files.cleanupReplaced('user', String(journalist.userId), 'profile-photo', fileId);
+      return this.toAdminDto(await this.loadForAdmin(id), actor, unlock, profile);
+    } finally {
+      profile.fill(0);
+    }
   }
 
   /** An editorial admin may only act on journalists who are their members. */
@@ -236,13 +399,117 @@ export class JournalistsService {
     return this.prisma.journalist.findUniqueOrThrow({ where: { id }, include: ADMIN_INCLUDE });
   }
 
-  private toAdminDto(journalist: JournalistWithUser): AdminJournalist {
+  private async toAdminDto(
+    journalist: JournalistWithUser,
+    actor: JwtPayload,
+    unlock?: string,
+    supplied?: Buffer,
+  ): Promise<AdminJournalist> {
+    let hydrated = journalist;
+    let email = journalist.user.email;
+    let key: Buffer | undefined;
+    if (journalist.encryptedData || journalist.user.encryptedData) {
+      key = supplied ? Buffer.from(supplied) : await this.profileKey(journalist, actor, unlock);
+      if (journalist.encryptedData)
+        hydrated = {
+          ...journalist,
+          ...this.payloads.decrypt<object>(
+            'journalist',
+            journalist.id,
+            `user:${journalist.userId}`,
+            journalist.encryptedData,
+            key,
+          ),
+        };
+      if (journalist.user.encryptedData)
+        email = this.userKeys.decryptUserData<{ email: string }>(
+          journalist.userId,
+          journalist.user.encryptedData,
+          key,
+        ).email;
+    }
+    try {
+      const privatePhotoId = hydrated.photoPath?.match(/^\/media\/([0-9a-f-]+)$/i)?.[1];
+      if (privatePhotoId && key) {
+        const photo = await this.files.read(privatePhotoId, key);
+        hydrated = {
+          ...hydrated,
+          photoPath: `/public-media/${this.publicMedia.put(photo.bytes, photo.mimeType, 900)}`,
+        };
+      }
+      return {
+        id: hydrated.id,
+        userId: hydrated.userId,
+        publicId: hydrated.publicId,
+        email,
+        emailVerified: Boolean(hydrated.user.emailVerifiedAt),
+        fullName: hydrated.fullName,
+        fullNameEn: hydrated.fullNameEn,
+        position: hydrated.position,
+        positionEn: hydrated.positionEn,
+        organization: hydrated.organization,
+        organizationEn: hydrated.organizationEn,
+        photoPath: hydrated.photoPath,
+        birthDate: hydrated.birthDate ? toIsoDate(hydrated.birthDate) : null,
+        passportData: hydrated.passportData,
+        taxNumber: hydrated.taxNumber,
+        phone: hydrated.phone,
+        nszhuMember: hydrated.nszhuMember,
+        selfRegistered: hydrated.selfRegistered,
+        profileComplete: isProfileComplete(hydrated),
+        cardsCount: hydrated._count.cards,
+        memberships: hydrated.memberships.map((m) => ({
+          id: m.editorial.id,
+          name: m.editorial.name,
+        })),
+      };
+    } finally {
+      key?.fill(0);
+    }
+  }
+  private async profileKey(
+    journalist: JournalistWithUser,
+    actor: JwtPayload,
+    unlock?: string,
+  ): Promise<Buffer> {
+    for (const membership of journalist.memberships) {
+      if (actor.role === 'EDITORIAL_ADMIN' && membership.editorialId !== actor.editorialId)
+        continue;
+      let editorial: Buffer;
+      try {
+        editorial = this.editorialKey(actor, unlock, membership.editorialId);
+      } catch {
+        continue;
+      }
+      try {
+        const grant = await this.prisma.editorialDataKeyGrant.findUnique({
+          where: {
+            userId_editorialId: { userId: journalist.userId, editorialId: membership.editorialId },
+          },
+        });
+        if (grant)
+          return this.hierarchy.unwrapProfileForEditorial(
+            journalist.userId,
+            membership.editorialId,
+            grant.keyEnvelope,
+            editorial,
+          );
+      } finally {
+        editorial.fill(0);
+      }
+    }
+    throw new BadRequestException('Profile encryption grant and unlock are required');
+  }
+  private editorialKey(actor: JwtPayload, token: string | undefined, editorialId: number): Buffer {
+    if (!token) throw new BadRequestException('Encryption unlock required');
+    try {
+      return this.sessions.key(token, actor.sub, `editorial:${editorialId}`);
+    } catch {
+      throw new BadRequestException('Encryption unlock required');
+    }
+  }
+  private legacyData(journalist: Journalist): Record<string, unknown> {
     return {
-      id: journalist.id,
-      userId: journalist.userId,
-      publicId: journalist.publicId,
-      email: journalist.user.email,
-      emailVerified: Boolean(journalist.user.emailVerifiedAt),
       fullName: journalist.fullName,
       fullNameEn: journalist.fullNameEn,
       position: journalist.position,
@@ -250,18 +517,11 @@ export class JournalistsService {
       organization: journalist.organization,
       organizationEn: journalist.organizationEn,
       photoPath: journalist.photoPath,
-      birthDate: journalist.birthDate ? toIsoDate(journalist.birthDate) : null,
+      birthDate: journalist.birthDate?.toISOString().slice(0, 10) ?? null,
       passportData: journalist.passportData,
       taxNumber: journalist.taxNumber,
       phone: journalist.phone,
       nszhuMember: journalist.nszhuMember,
-      selfRegistered: journalist.selfRegistered,
-      profileComplete: isProfileComplete(journalist),
-      cardsCount: journalist._count.cards,
-      memberships: journalist.memberships.map((m) => ({
-        id: m.editorial.id,
-        name: m.editorial.name,
-      })),
     };
   }
 }

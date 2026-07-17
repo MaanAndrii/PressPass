@@ -13,6 +13,31 @@ jobs:
   build-and-test:
     name: Lint, build & test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: presspass
+          POSTGRES_PASSWORD: presspass
+          POSTGRES_DB: presspass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U presspass"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://presspass:presspass@localhost:5432/presspass?schema=public
+      JWT_SECRET: ci-jwt-secret-that-is-at-least-32-bytes-long
+      DATA_KEY_SECRET: ci-legacy-migration-secret-at-least-32-bytes
+      LOOKUP_KEY: ci-independent-lookup-secret-at-least-32-bytes
+      ADMIN_EMAIL: admin@ci.invalid
+      ADMIN_PASSWORD: CI_Admin_Password_123!
+      ADMIN_ENCRYPTION_PASSPHRASE: CI_Admin_Crypto_Passphrase_123!
+      SUPERADMIN_RECOVERY_PASSPHRASE_1: CI_Recovery_Passphrase_One_123!
+      SUPERADMIN_RECOVERY_PASSPHRASE_2: CI_Recovery_Passphrase_Two_456!
+      RECOVERY_KIT_OUTPUT: /tmp/presspass-ci-recovery-kits.json
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,6 +53,18 @@ jobs:
 
       - name: Generate Prisma client
         run: npx prisma generate
+
+      - name: Apply migrations on clean PostgreSQL
+        run: npx prisma migrate deploy
+
+      - name: Seed encrypted owner keys
+        run: npm run db:seed
+
+      - name: Backfill and verify encrypted-at-rest storage
+        run: npm run security:backfill && npm run security:verify
+
+      - name: Type-check migration utilities
+        run: npx tsc -p prisma/tsconfig.json
 
       - name: Lint
         run: npm run lint

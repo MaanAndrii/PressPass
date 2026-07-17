@@ -61,7 +61,14 @@ cp .env.example .env        # відредагуйте DATABASE_URL, JWT_SECRET 
 
 # 3. База даних
 npx prisma migrate dev      # створює схему
-npm run db:seed             # створює адміністратора (ADMIN_EMAIL / ADMIN_PASSWORD)
+ADMIN_ENCRYPTION_PASSPHRASE='окрема-довга-фраза' npm run db:seed
+# Створює encrypted Admin/System keys; passphrase не записуйте в .env production.
+
+# Два незалежні recovery slots + перевірка відсутності plaintext:
+SUPERADMIN_RECOVERY_PASSPHRASE_1='перша-довга-recovery-фраза' \
+SUPERADMIN_RECOVERY_PASSPHRASE_2='друга-довга-recovery-фраза' \
+ADMIN_ENCRYPTION_PASSPHRASE='окрема-довга-фраза' npm run security:backfill
+npm run security:verify
 
 # 4. Запуск (у двох терміналах)
 npm run dev:api             # http://localhost:3001  (Swagger: /docs)
@@ -84,23 +91,23 @@ npm run dev:web             # http://localhost:3000
 
 Swagger UI: `http://localhost:3001/docs`. Специфікація: [docs/openapi.json](docs/openapi.json).
 
-| Метод  | Шлях                           | Доступ    | Опис                    |
-| ------ | ------------------------------ | --------- | ----------------------- |
-| POST   | `/auth/login`                  | публічний | вхід, повертає JWT      |
-| POST   | `/auth/logout`                 | JWT       | вихід (stateless)       |
-| GET    | `/me`                          | JWT       | профіль користувача     |
-| GET    | `/card`                        | JWT       | посвідчення журналіста  |
-| GET    | `/verify/:uuid`                | публічний | перевірка посвідчення   |
-| GET    | `/admin/journalists`           | ADMIN     | список журналістів      |
-| POST   | `/admin/journalists`           | ADMIN     | створення журналіста    |
-| PUT    | `/admin/journalists/:id`       | ADMIN     | редагування журналіста  |
-| DELETE | `/admin/journalists/:id`       | ADMIN     | видалення журналіста    |
-| POST   | `/admin/journalists/:id/photo` | ADMIN     | завантаження фото       |
-| GET    | `/admin/cards`                 | ADMIN     | список посвідчень       |
-| POST   | `/admin/cards`                 | ADMIN     | видача посвідчення      |
-| PUT    | `/admin/cards/:id`             | ADMIN     | редагування посвідчення |
-| POST   | `/admin/cards/block`           | ADMIN     | блокування посвідчення  |
-| POST   | `/admin/cards/renew`           | ADMIN     | продовження строку дії  |
+| Метод  | Шлях                           | Доступ    | Опис                              |
+| ------ | ------------------------------ | --------- | --------------------------------- |
+| POST   | `/auth/login`                  | публічний | вхід, повертає JWT                |
+| POST   | `/auth/logout`                 | JWT       | відкликання JWT та unlock session |
+| GET    | `/me`                          | JWT       | профіль користувача               |
+| GET    | `/card`                        | JWT       | посвідчення журналіста            |
+| GET    | `/verify/:uuid`                | публічний | перевірка посвідчення             |
+| GET    | `/admin/journalists`           | ADMIN     | список журналістів                |
+| POST   | `/admin/journalists`           | ADMIN     | створення журналіста              |
+| PUT    | `/admin/journalists/:id`       | ADMIN     | редагування журналіста            |
+| DELETE | `/admin/journalists/:id`       | ADMIN     | видалення журналіста              |
+| POST   | `/admin/journalists/:id/photo` | ADMIN     | завантаження фото                 |
+| GET    | `/admin/cards`                 | ADMIN     | список посвідчень                 |
+| POST   | `/admin/cards`                 | ADMIN     | видача посвідчення                |
+| PUT    | `/admin/cards/:id`             | ADMIN     | редагування посвідчення           |
+| POST   | `/admin/cards/block`           | ADMIN     | блокування посвідчення            |
+| POST   | `/admin/cards/renew`           | ADMIN     | продовження строку дії            |
 
 ## QR та перевірка
 
@@ -108,7 +115,7 @@ QR-код містить **лише URL** виду `https://id.domain.ua/verify/
 
 ## Безпека
 
-HTTPS-only (production), JWT, Argon2, UUIDv7, rate limiting (глобально + жорсткіше для `/auth/login` і `/verify`), CORS, Helmet, валідація вхідних даних (захист від SQLi/XSS), фото зберігаються на диску (`uploads/photos/`), у БД — лише шлях.
+HTTPS-only (production), JWT, Argon2, UUIDv7, rate limiting (глобально + жорсткіше для `/auth/login` і `/verify`), CORS, Helmet, валідація вхідних даних (захист від SQLi/XSS), фото шифруються окремими File DEK у `uploads/encrypted/` і віддаються лише через контрольований API.
 
 ## Документація
 
@@ -117,6 +124,9 @@ HTTPS-only (production), JWT, Argon2, UUIDv7, rate limiting (глобально 
 - [docs/api.md](docs/api.md) — опис API
 - [docs/deploy.md](docs/deploy.md) — розгортання на VPS (візард і вручну)
 - [docs/development.md](docs/development.md) — процес розробки, конвенції
+- [docs/security-roadmap.md](docs/security-roadmap.md) — актуальний стан і дорожня карта безпеки до релізу
+- [docs/security-stage-1.md](docs/security-stage-1.md) — owner-key encryption, unlock і recovery
+- [docs/adr/0001-owner-key-encryption.md](docs/adr/0001-owner-key-encryption.md) — погоджена криптографічна модель
 - [CHANGELOG.md](CHANGELOG.md)
 
 ## Ліцензія

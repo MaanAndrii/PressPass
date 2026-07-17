@@ -1,77 +1,61 @@
 import { ConfigService } from '@nestjs/config';
-import { Test } from '@nestjs/testing';
-
-import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from './settings.service';
-
-describe('SettingsService', () => {
-  let service: SettingsService;
-
-  const prismaMock = {
-    appSetting: { findUnique: jest.fn(), upsert: jest.fn() },
+describe('SettingsService encrypted storage', () => {
+  const prisma: any = { appSetting: { findUnique: jest.fn(), upsert: jest.fn() } };
+  const sessions: any = { key: jest.fn(() => Buffer.alloc(32, 1)) };
+  const payloads: any = {
+    encrypt: jest.fn(() => ({ version: 1, envelope: { ciphertext: 'opaque' } })),
+    decrypt: jest.fn(),
   };
-  const configMock = { get: jest.fn() };
-
-  beforeEach(async () => {
+  const files: any = { store: jest.fn(), read: jest.fn(), cleanupReplaced: jest.fn() };
+  const media: any = { put: jest.fn() };
+  let service: SettingsService;
+  const create = () =>
+    new SettingsService(
+      prisma,
+      new ConfigService({ MAIL_FROM: 'env@example.com' }),
+      sessions,
+      payloads,
+      files,
+      media,
+    );
+  beforeEach(() => {
     jest.clearAllMocks();
-    const moduleRef = await Test.createTestingModule({
-      providers: [
-        SettingsService,
-        { provide: PrismaService, useValue: prismaMock },
-        { provide: ConfigService, useValue: configMock },
-      ],
-    }).compile();
-    service = moduleRef.get(SettingsService);
+    service = create();
   });
-
-  it('prefers the DB key over the env var', async () => {
-    prismaMock.appSetting.findUnique.mockResolvedValue({ resendApiKey: 're_dbkey1234567890' });
-    configMock.get.mockReturnValue('re_envkey');
-
-    expect(await service.resendApiKey()).toBe('re_dbkey1234567890');
-  });
-
-  it('falls back to the env var when the DB has no key', async () => {
-    prismaMock.appSetting.findUnique.mockResolvedValue({ resendApiKey: null });
-    configMock.get.mockImplementation((k: string) =>
-      k === 'RESEND_API_KEY' ? 're_envkey' : undefined,
+  it('stores secrets only inside the encrypted payload and clears legacy columns', async () => {
+    prisma.appSetting.findUnique.mockResolvedValue(null);
+    prisma.appSetting.upsert.mockResolvedValue({});
+    await service.update({ resendApiKey: 're_secret', mailFrom: 'Sender <x@y.z>' }, 1, 'unlock');
+    expect(payloads.encrypt).toHaveBeenCalledWith(
+      'settings',
+      1,
+      'system:1',
+      expect.objectContaining({ resendApiKey: 're_secret' }),
+      expect.any(Buffer),
     );
-
-    expect(await service.resendApiKey()).toBe('re_envkey');
-  });
-
-  it('never returns the raw key — only a masked preview', async () => {
-    prismaMock.appSetting.findUnique.mockResolvedValue({ resendApiKey: 're_secret_abcdef1234' });
-    configMock.get.mockReturnValue(undefined);
-
-    const pub = await service.getPublic();
-
-    expect(pub.resendConfigured).toBe(true);
-    expect(pub.resendKeyPreview).not.toContain('secret');
-    expect(pub.resendKeyPreview).toMatch(/…/);
-    // The preview keeps only a short prefix + suffix.
-    expect(pub.resendKeyPreview).toBe('re_…1234');
-  });
-
-  it('reports not configured when neither DB nor env has a key', async () => {
-    prismaMock.appSetting.findUnique.mockResolvedValue(null);
-    configMock.get.mockReturnValue(undefined);
-
-    const pub = await service.getPublic();
-
-    expect(pub.resendConfigured).toBe(false);
-    expect(pub.resendKeyPreview).toBeNull();
-  });
-
-  it('clearing the key stores null (empty string → fall back to env)', async () => {
-    prismaMock.appSetting.findUnique.mockResolvedValue(null);
-    configMock.get.mockReturnValue(undefined);
-    prismaMock.appSetting.upsert.mockResolvedValue({});
-
-    await service.update({ resendApiKey: '' });
-
-    expect(prismaMock.appSetting.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ update: { resendApiKey: null } }),
+    expect(prisma.appSetting.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          resendApiKey: null,
+          mailFrom: null,
+          nszhuLogoPath: null,
+        }),
+      }),
     );
+  });
+  it('does not expose the configured secret in the public response', async () => {
+    prisma.appSetting.findUnique.mockResolvedValue({ encryptedData: {} });
+    payloads.decrypt.mockReturnValue({
+      resendApiKey: 're_verysecret',
+      mailFrom: 'Sender',
+      nszhuLogoPath: null,
+    });
+    const result = await service.getPublic(1, 'unlock');
+    expect(result.resendConfigured).toBe(true);
+    expect(result.resendKeyPreview).not.toContain('verysecret');
+  });
+  it('falls back to environment mail settings while the system key is locked', async () => {
+    await expect(service.mailFrom()).resolves.toBe('env@example.com');
   });
 });

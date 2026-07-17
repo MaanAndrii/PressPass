@@ -9,9 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Додано версійне прикладне шифрування AES-256-GCM і окремий випадковий ключ даних для кожного користувача. Ключ обгортається ключем, отриманим із пароля через Argon2id, тому зміна власного пароля потребує лише безпечного переобгортання ключа даних.
-- Життєвий цикл ключів тепер охоплює всі способи створення парольних облікових записів через API: самореєстрацію, створення журналіста адміністратором і створення адміністратора. Адміністративне скидання пароля генерує новий комплект ключового матеріалу.
-- Вхід перевіряє цілісність збереженого ключового матеріалу, а застарілі облікові записи без нього безпечно отримують його під час наступної зміни пароля.
+- Завершено owner-key фундамент Етапу 1: версійні AES-256-GCM envelopes, випадкові DEK/KEK,
+  Argon2id wrapping/rewrapping, окремі Admin/Editorial/System key slots та дві RSA-OAEP offline
+  Superadmin recovery authorities.
+- Email і Google subject шукаються через незалежні HMAC blind indexes; зміст користувачів,
+  журналістів, редакцій, посвідчень, налаштуван і шаблонів зберігається лише у versioned encrypted
+  payloads.
+- Приватні фото й логотипи переведено на magic-byte-validated encrypted storage з авторизованою
+  видачею; прямий static `/uploads` вимкнено в API та Nginx.
+- Додано короткоживучі in-memory API unlock sessions, окрему encryption passphrase для Google і
+  адміністраторів, resumable security backfill та обовʼязковий plaintext/key-slot verifier.
 
 ## [0.17.0] — 2026-07-15
 
