@@ -4,6 +4,10 @@
     "module": "commonjs",
     "moduleResolution": "node",
     "target": "ES2022",
+    "baseUrl": "..",
+    "paths": {
+      "@presspass/shared": ["packages/shared/src/index.ts"]
+    },
     "types": ["node"],
     "noEmit": true,
     "experimentalDecorators": true,
