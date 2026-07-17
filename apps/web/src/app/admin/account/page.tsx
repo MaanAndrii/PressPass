@@ -4,6 +4,8 @@ import { Button, Field } from '@presspass/ui';
 import { type FormEvent, useState } from 'react';
 
 import { api, ApiError } from '@/lib/api';
+import { EncryptionCredentialInput } from '@/components/EncryptionCredentialInput';
+import { downloadKeyfile, generateKeyfileSecret } from '@/lib/keyfile';
 
 /** Account settings available to every admin: change your own password. */
 export default function AdminAccountPage() {
@@ -11,6 +13,38 @@ export default function AdminAccountPage() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // Encryption credential: switch from a passphrase to a generated key-file.
+  const [currentCred, setCurrentCred] = useState('');
+  const [cryptoBusy, setCryptoBusy] = useState(false);
+  const [cryptoMsg, setCryptoMsg] = useState<string | null>(null);
+  const [cryptoError, setCryptoError] = useState<string | null>(null);
+
+  async function switchToKeyfile() {
+    setCryptoError(null);
+    setCryptoMsg(null);
+    if (currentCred.length < 12) {
+      setCryptoError('Вкажіть поточну крипто-фразу або ключ-файл');
+      return;
+    }
+    setCryptoBusy(true);
+    try {
+      const secret = generateKeyfileSecret();
+      await api('/encryption/change-passphrase', {
+        method: 'POST',
+        body: { currentPassphrase: currentCred, newPassphrase: secret },
+      });
+      downloadKeyfile(secret, 'presspass-admin.key');
+      setCurrentCred('');
+      setCryptoMsg(
+        'Готово — новий ключ-файл завантажено. Зберігайте його надійно й входьте ним наступного разу. Поточну сесію шифрування скинуто.',
+      );
+    } catch (err) {
+      setCryptoError(err instanceof ApiError ? err.message : 'Не вдалося змінити крипто-доступ');
+    } finally {
+      setCryptoBusy(false);
+    }
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -78,6 +112,25 @@ export default function AdminAccountPage() {
           {busy ? 'Збереження…' : 'Змінити пароль'}
         </Button>
       </form>
+
+      <section className="space-y-4 rounded-xl bg-white p-5 shadow">
+        <h2 className="font-semibold">Крипто-доступ: перейти на ключ-файл</h2>
+        <p className="text-sm text-slate-600">
+          Замість того щоб памʼятати крипто-фразу, можна користуватися ключ-файлом. Файл
+          згенерується і завантажиться — зберігайте його надійно (USB, сейф, менеджер паролів).
+          Втрата файлу = блокування; відновлення лише через recovery-кіт суперадміна.
+        </p>
+        <EncryptionCredentialInput
+          label="Поточна крипто-фраза або ключ-файл"
+          value={currentCred}
+          onChange={setCurrentCred}
+        />
+        {cryptoError && <p className="text-sm text-red-600">{cryptoError}</p>}
+        {cryptoMsg && <p className="text-sm text-emerald-600">{cryptoMsg}</p>}
+        <Button type="button" onClick={() => void switchToKeyfile()} disabled={cryptoBusy}>
+          {cryptoBusy ? 'Застосування…' : 'Згенерувати ключ-файл і застосувати'}
+        </Button>
+      </section>
     </div>
   );
 }

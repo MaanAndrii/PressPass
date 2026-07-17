@@ -6,6 +6,7 @@ import { type FormEvent, useCallback, useEffect, useState } from 'react';
 
 import { api, ApiError } from '@/lib/api';
 import { getStoredUser } from '@/lib/auth';
+import { EncryptionCredentialInput } from '@/components/EncryptionCredentialInput';
 
 /**
  * Керування адміністраторами (лише для системного адміністратора).
@@ -157,14 +158,13 @@ export default function AdminAdminsPage() {
           value={form.password}
           onChange={(e) => setForm({ ...form, password: e.target.value })}
         />
-        <Field
+        <EncryptionCredentialInput
           label="Окрема криптографічна фраза"
-          type="password"
           required
-          minLength={12}
-          autoComplete="off"
+          allowGenerate
+          generateFilename={`presspass-${form.email || 'admin'}.key`}
           value={form.encryptionPassphrase}
-          onChange={(e) => setForm({ ...form, encryptionPassphrase: e.target.value })}
+          onChange={(secret) => setForm({ ...form, encryptionPassphrase: secret })}
         />
         {form.role === 'EDITORIAL_ADMIN' && (
           <label className="block">

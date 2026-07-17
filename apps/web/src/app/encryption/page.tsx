@@ -1,15 +1,21 @@
 'use client';
-import { Button, Field } from '@presspass/ui';
+import { Button } from '@presspass/ui';
 import { useRouter } from 'next/navigation';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { getToken, saveSession, saveUnlockToken } from '@/lib/auth';
+import { EncryptionCredentialInput } from '@/components/EncryptionCredentialInput';
 
 export default function EncryptionUnlockPage() {
   const router = useRouter();
   const [passphrase, setPassphrase] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Enrollment (first-time) may generate a fresh key-file; unlock must not.
+  const [enroll, setEnroll] = useState(false);
+  useEffect(() => {
+    setEnroll(sessionStorage.getItem('presspass.encryptionEnrollment') === '1');
+  }, []);
   async function submit(event: FormEvent) {
     event.preventDefault();
     setLoading(true);
@@ -49,14 +55,12 @@ export default function EncryptionUnlockPage() {
           Введіть окрему криптографічну фразу. Вона не зберігається на сервері й потрібна для
           розблокування приватних даних.
         </p>
-        <Field
+        <EncryptionCredentialInput
           label="Криптографічна фраза"
-          type="password"
-          minLength={12}
-          required
-          autoComplete="off"
           value={passphrase}
-          onChange={(e) => setPassphrase(e.target.value)}
+          onChange={setPassphrase}
+          allowGenerate={enroll}
+          generateFilename="presspass-admin.key"
         />
         {error && <p className="text-sm text-red-600">{error}</p>}
         <Button className="w-full" disabled={loading}>
