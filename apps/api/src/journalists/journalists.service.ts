@@ -65,7 +65,44 @@ export class JournalistsService {
       include: ADMIN_INCLUDE,
       orderBy: { id: 'asc' },
     });
-    return Promise.all(journalists.map((journalist) => this.toAdminDto(journalist, actor, unlock)));
+    // A journalist the admin holds no key for (e.g. a self-registered one with
+    // no editorial grant) must not break the whole list — list it redacted.
+    return Promise.all(
+      journalists.map((journalist) =>
+        this.toAdminDto(journalist, actor, unlock).catch(() => this.redactedDto(journalist)),
+      ),
+    );
+  }
+
+  /** Minimal, non-decrypted entry for a journalist the admin cannot unlock. */
+  private redactedDto(journalist: JournalistWithUser): AdminJournalist {
+    return {
+      id: journalist.id,
+      userId: journalist.userId,
+      publicId: journalist.publicId,
+      email: '',
+      emailVerified: Boolean(journalist.user.emailVerifiedAt),
+      fullName: '',
+      fullNameEn: '',
+      position: '',
+      positionEn: '',
+      organization: '',
+      organizationEn: '',
+      photoPath: null,
+      birthDate: null,
+      passportData: null,
+      taxNumber: null,
+      phone: null,
+      nszhuMember: false,
+      selfRegistered: journalist.selfRegistered,
+      profileComplete: false,
+      cardsCount: journalist._count.cards,
+      memberships: journalist.memberships.map((m) => ({
+        id: m.editorial.id,
+        name: m.editorial.name,
+      })),
+      encrypted: true,
+    };
   }
 
   async create(

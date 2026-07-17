@@ -302,6 +302,12 @@ export interface AdminJournalist {
   cardsCount: number;
   /** Media this journalist belongs to. */
   memberships: MembershipInfo[];
+  /**
+   * True when the viewer holds no key to decrypt this journalist's protected
+   * fields (e.g. a self-registered journalist with no editorial grant). The
+   * row is listed so it is not silently hidden, but personal fields are blank.
+   */
+  encrypted?: boolean;
 }
 
 /** Shared rule: when the self-registration questionnaire counts as complete. */
