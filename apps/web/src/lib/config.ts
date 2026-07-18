@@ -27,7 +27,11 @@ export function photoUrl(photoPath: string | null): string | null {
   if (photoPath.startsWith('http')) {
     return photoPath;
   }
-  // Absolute API origin (dev): photos live on the API host.
-  // Relative API path (production behind Nginx): protected media is served by the API.
-  return `${API_URL}${photoPath}`;
+  // Only protected media is served by the API (dev: its own origin; prod: /api
+  // behind Nginx). Static assets like /icons/logo.svg or /placeholders/* are
+  // served by the web app itself, so they must NOT get the API prefix.
+  if (photoPath.startsWith('/media/') || photoPath.startsWith('/public-media/')) {
+    return `${API_URL}${photoPath}`;
+  }
+  return photoPath;
 }

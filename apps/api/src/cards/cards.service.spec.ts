@@ -53,11 +53,13 @@ describe('CardsService encrypted credentials', () => {
     new ConfigService({ LOOKUP_KEY: 'lookup-key-that-is-at-least-32-bytes-long' }),
   );
   const files: any = { read: jest.fn(), store: jest.fn() };
-  const qr: any = { sign: jest.fn(), ttlSeconds: 60 };
+  const qr: any = { ttlSeconds: 60 };
+  const qrProjections: any = { put: jest.fn(() => 'projection-id') };
   const service = new CardsService(
     prisma,
     new ConfigService({}),
     qr,
+    qrProjections,
     sessions,
     payloads,
     hierarchy,

@@ -19,6 +19,7 @@ import type { JwtPayload } from '../auth/auth.types';
 import { mapCard } from '../common/card.mapper';
 import { PrismaService } from '../prisma/prisma.service';
 import { QrTokenService } from '../qr/qr-token.service';
+import { QrProjectionCacheService } from '../qr/qr-projection-cache.service';
 import { UnlockSessionService } from '../crypto/unlock-session.service';
 import { DomainPayloadService } from '../crypto/domain-payload.service';
 import { KeyHierarchyService } from '../crypto/key-hierarchy.service';
@@ -43,6 +44,7 @@ export class CardsService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly qrToken: QrTokenService,
+    private readonly qrProjections: QrProjectionCacheService,
     private readonly sessions: UnlockSessionService,
     private readonly payloads: DomainPayloadService,
     private readonly hierarchy: KeyHierarchyService,
@@ -66,28 +68,34 @@ export class CardsService {
     if (!raw) throw new NotFoundException('Card not found');
     this.assertManages(raw, actor);
     const card = await this.hydrate(raw, actor, unlock);
-    const token = await this.qrToken.sign(card.uuid, {
-      cardNumber: card.cardNumber,
-      expireDate: card.expireDate!.toISOString(),
-      fullName: card.journalist.fullName,
-      fullNameEn: card.journalist.fullNameEn,
-      position: card.position,
-      organization: card.editorial?.displayNameUk || card.editorial?.name || '',
-      photoPath: null,
-      editorial: card.editorial
-        ? {
-            id: card.editorial.id,
-            name: card.editorial.name,
-            displayNameUk: card.editorial.displayNameUk,
-            displayNameEn: card.editorial.displayNameEn,
-            mediaId: card.editorial.mediaId,
-            website: card.editorial.website,
-            logoPath: null,
-          }
-        : null,
-      nszhuMember: card.journalist.nszhuMember,
-      nszhuLogoPath: null,
-    });
+    // Store the projection server-side; the QR carries only a short id so it
+    // stays low-density and scans (the public verify endpoint resolves it).
+    const token = this.qrProjections.put(
+      card.uuid,
+      {
+        cardNumber: card.cardNumber,
+        expireDate: card.expireDate!.toISOString(),
+        fullName: card.journalist.fullName,
+        fullNameEn: card.journalist.fullNameEn,
+        position: card.position,
+        organization: card.editorial?.displayNameUk || card.editorial?.name || '',
+        photoPath: null,
+        editorial: card.editorial
+          ? {
+              id: card.editorial.id,
+              name: card.editorial.name,
+              displayNameUk: card.editorial.displayNameUk,
+              displayNameEn: card.editorial.displayNameEn,
+              mediaId: card.editorial.mediaId,
+              website: card.editorial.website,
+              logoPath: null,
+            }
+          : null,
+        nszhuMember: card.journalist.nszhuMember,
+        nszhuLogoPath: null,
+      },
+      this.qrToken.ttlSeconds,
+    );
     return {
       verifyUrl: buildVerifyUrl(baseUrl, card.uuid, token),
       expiresInSeconds: this.qrToken.ttlSeconds,
