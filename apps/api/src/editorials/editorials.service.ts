@@ -85,6 +85,9 @@ export class EditorialsService {
           cardNumberPrefixBlindIndex: cardNumberPrefix
             ? this.blind.value('card-prefix', cardNumberPrefix)
             : null,
+          // Public label kept in the clear so a journalist can identify a join
+          // request; the editorial name is already public on credentials.
+          publicName: (dto.displayNameUk?.trim() || dto.name.trim()).slice(0, 120),
           name: '',
           displayNameUk: '',
           displayNameEn: '',
@@ -140,6 +143,10 @@ export class EditorialsService {
         where: { id },
         data: {
           encryptedData: this.payloads.encrypt('editorial', id, `editorial:${id}`, next, key),
+          publicName: (
+            String((next as Record<string, unknown>).displayNameUk ?? '').trim() ||
+            String((next as Record<string, unknown>).name ?? '').trim()
+          ).slice(0, 120),
           ...(cardNumberPrefix !== undefined
             ? {
                 cardNumberPrefixBlindIndex: cardNumberPrefix

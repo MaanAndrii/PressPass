@@ -1,7 +1,7 @@
 'use client';
 
 import { Badge, Button } from '@presspass/ui';
-import type { AdminJournalist, Editorial } from '@presspass/shared';
+import type { AdminJournalist, AttachResult, Editorial } from '@presspass/shared';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api, ApiError } from '@/lib/api';
@@ -74,9 +74,16 @@ export default function AdminJournalistsPage() {
       body.editorialId = Number(attachEditorialId);
     }
     try {
-      const j = await api<AdminJournalist>('/admin/journalists/attach', { method: 'POST', body });
+      const result = await api<AttachResult>('/admin/journalists/attach', {
+        method: 'POST',
+        body,
+      });
       setAttachId('');
-      setAttachMsg(`Додано: ${j.fullName || j.email}`);
+      setAttachMsg(
+        result.status === 'pending'
+          ? 'Запит надіслано. Журналіст має підтвердити приєднання у своєму кабінеті.'
+          : `Додано: ${result.journalist.fullName || result.journalist.email || result.journalist.publicId}`,
+      );
       await reload();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не вдалося додати журналіста');

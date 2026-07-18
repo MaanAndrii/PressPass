@@ -159,6 +159,21 @@ export interface MembershipInfo {
   name: string;
 }
 
+/** A pending invitation for the journalist to join an editorial. */
+export interface JoinRequestInfo {
+  id: number;
+  editorialId: number;
+  /** Public editorial label (the name is public on credentials). */
+  editorialName: string;
+}
+
+/** Result of an admin adding a journalist by public id. */
+export interface AttachResult {
+  /** `pending` when the journalist must still confirm; `attached` when done. */
+  status: 'attached' | 'pending';
+  journalist: AdminJournalist;
+}
+
 /** GET /me response. */
 export interface UserProfile {
   id: number;

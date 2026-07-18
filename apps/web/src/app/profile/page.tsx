@@ -9,6 +9,7 @@ import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { api, ApiError, apiUpload } from '@/lib/api';
 import { clearSession, getToken } from '@/lib/auth';
 import { photoUrl } from '@/lib/config';
+import { JoinRequestsPanel } from '@/components/JoinRequestsPanel';
 
 /**
  * Анкета користувача після реєстрації. Всі поля обовʼязкові — без повністю
@@ -117,6 +118,10 @@ export default function ProfilePage() {
         <button onClick={handleLogout} className="text-slate-500 hover:text-slate-800">
           Вийти
         </button>
+      </div>
+
+      <div className="mb-4">
+        <JoinRequestsPanel />
       </div>
       <h1 className="mb-1 text-2xl font-bold text-blue-700">Анкета журналіста</h1>
       <p className="mb-6 text-sm text-slate-500">

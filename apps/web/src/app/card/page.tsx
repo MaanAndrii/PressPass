@@ -43,9 +43,18 @@ export default function CardPage() {
   const [flipped, setFlipped] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pendingJoins, setPendingJoins] = useState(0);
   const touch = useRef<{ x: number; y: number } | null>(null);
   const { theme } = template ?? DEFAULT_CARD_TEMPLATE;
   const fit = useFitScale(theme.cardWidth, theme.cardHeight);
+
+  // Pending editorial join requests: surface a badge/menu entry pointing to the
+  // questionnaire screen where the journalist confirms or rejects them.
+  useEffect(() => {
+    void api<{ id: number }[]>('/me/join-requests')
+      .then((list) => setPendingJoins(list.length))
+      .catch(() => setPendingJoins(0));
+  }, []);
 
   // The card currently shown (selected, else the first — already primary-first).
   const card = useMemo(
@@ -203,9 +212,14 @@ export default function CardPage() {
           onClick={() => setMenuOpen((open) => !open)}
           aria-expanded={menuOpen}
           aria-label="Меню"
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-2xl leading-none text-slate-700 shadow hover:bg-slate-50"
+          className="relative flex h-10 w-10 items-center justify-center rounded-full bg-white text-2xl leading-none text-slate-700 shadow hover:bg-slate-50"
         >
           ☰
+          {pendingJoins > 0 && (
+            <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-xs font-bold text-white">
+              {pendingJoins}
+            </span>
+          )}
         </button>
         {menuOpen && (
           <div className="mt-2 w-72 rounded-2xl bg-white p-2 text-sm shadow-xl ring-1 ring-slate-200">
@@ -217,7 +231,13 @@ export default function CardPage() {
               className="flex w-full items-center justify-between rounded-xl px-3 py-2 font-semibold text-blue-700 hover:bg-blue-50"
             >
               <span>Анкета</span>
-              <span aria-hidden>›</span>
+              {pendingJoins > 0 ? (
+                <span className="rounded-full bg-amber-500 px-2 text-xs font-bold text-white">
+                  {pendingJoins} запит(ів)
+                </span>
+              ) : (
+                <span aria-hidden>›</span>
+              )}
             </button>
 
             {cards.length > 0 && (

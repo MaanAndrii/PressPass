@@ -15,6 +15,10 @@ describe('MeService owner encrypted profile', () => {
   };
   const files: any = { store: jest.fn(), read: jest.fn(), cleanupReplaced: jest.fn() };
   const media: any = { put: jest.fn() };
+  const hierarchy: any = {
+    getEditorialReadPublicKey: jest.fn(),
+    sealProfileForEditorial: jest.fn(),
+  };
   const service = new MeService(
     prisma,
     new ConfigService({}),
@@ -24,6 +28,7 @@ describe('MeService owner encrypted profile', () => {
     payloads,
     files,
     media,
+    hierarchy,
   );
   beforeEach(() => jest.clearAllMocks());
   it('encrypts the complete questionnaire and scrubs legacy columns', async () => {

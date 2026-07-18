@@ -5,7 +5,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { isProfileComplete, type AdminJournalist, type Role } from '@presspass/shared';
+import {
+  isProfileComplete,
+  type AdminJournalist,
+  type AttachResult,
+  type Role,
+} from '@presspass/shared';
 import * as argon2 from 'argon2';
 import type { Editorial, EditorialMembership, Journalist, Prisma, User } from '@prisma/client';
 
@@ -243,7 +248,7 @@ export class JournalistsService {
     dto: AttachJournalistDto,
     actor: JwtPayload,
     unlock?: string,
-  ): Promise<AdminJournalist> {
+  ): Promise<AttachResult> {
     const editorialId =
       actor.role === 'EDITORIAL_ADMIN' ? (actor.editorialId ?? undefined) : dto.editorialId;
     if (!editorialId) {
@@ -253,19 +258,88 @@ export class JournalistsService {
     if (!editorial) {
       throw new NotFoundException('Editorial not found');
     }
-    const journalist = await this.prisma.journalist.findUnique({
+    const found = await this.prisma.journalist.findUnique({
       where: { publicId: normalizePublicId(dto.publicId) },
+      select: { id: true },
     });
-    if (!journalist) {
+    if (!found) {
       throw new NotFoundException('Журналіста з таким ID не знайдено');
     }
-    // Idempotent: adding an already-linked journalist is a no-op, not an error.
-    await this.prisma.editorialMembership.upsert({
+    const journalist = await this.loadForAdmin(found.id);
+
+    const alreadyMember = await this.prisma.editorialMembership.findUnique({
       where: { editorialId_journalistId: { editorialId, journalistId: journalist.id } },
-      update: {},
-      create: { editorialId, journalistId: journalist.id },
     });
-    return this.toAdminDto(await this.loadForAdmin(journalist.id), actor, unlock);
+    if (alreadyMember) {
+      return { status: 'attached', journalist: await this.safeAdminDto(journalist, actor, unlock) };
+    }
+
+    // A Superadmin attaches directly; an editorial admin needs the journalist to
+    // confirm, so we only create a PENDING request.
+    if (actor.role === 'ADMIN') {
+      await this.superadminAttach(journalist, editorialId, actor, unlock);
+      return {
+        status: 'attached',
+        journalist: await this.safeAdminDto(await this.loadForAdmin(journalist.id), actor, unlock),
+      };
+    }
+    await this.prisma.joinRequest.upsert({
+      where: { editorialId_journalistId: { editorialId, journalistId: journalist.id } },
+      update: { status: 'PENDING', respondedAt: null },
+      create: { editorialId, journalistId: journalist.id, status: 'PENDING' },
+    });
+    return { status: 'pending', journalist: this.redactedDto(journalist) };
+  }
+
+  /** toAdminDto that degrades to a redacted row instead of throwing. */
+  private async safeAdminDto(
+    journalist: JournalistWithUser,
+    actor: JwtPayload,
+    unlock?: string,
+  ): Promise<AdminJournalist> {
+    return this.toAdminDto(journalist, actor, unlock).catch(() => this.redactedDto(journalist));
+  }
+
+  /** Superadmin direct attach: create membership and, best-effort, the grant. */
+  private async superadminAttach(
+    journalist: JournalistWithUser,
+    editorialId: number,
+    actor: JwtPayload,
+    unlock?: string,
+  ): Promise<void> {
+    await this.prisma.editorialMembership.create({
+      data: { editorialId, journalistId: journalist.id },
+    });
+    if (!unlock || !journalist.user.systemKeyEnvelope) return;
+    let systemKey: Buffer | undefined;
+    let editorialKey: Buffer | undefined;
+    let profileKey: Buffer | undefined;
+    try {
+      systemKey = this.sessions.key(unlock, actor.sub, 'system');
+      editorialKey = this.sessions.key(unlock, actor.sub, `editorial:${editorialId}`);
+      profileKey = await this.hierarchy.unsealProfileForSystem(
+        journalist.user.systemKeyEnvelope,
+        systemKey,
+      );
+      const keyEnvelope = this.hierarchy.wrapProfileForEditorial(
+        journalist.userId,
+        editorialId,
+        profileKey,
+        editorialKey,
+      );
+      await this.prisma.editorialDataKeyGrant.upsert({
+        where: { userId_editorialId: { userId: journalist.userId, editorialId } },
+        update: { keyEnvelope },
+        create: { userId: journalist.userId, editorialId, keyEnvelope },
+      });
+    } catch {
+      // No system/editorial key or unsealable profile — the grant is created on
+      // the journalist's next login (login backfill) instead.
+    } finally {
+      systemKey?.fill(0);
+      editorialKey?.fill(0);
+      profileKey?.fill(0);
+    }
   }
 
   /** Removes a journalist from the editorial admin's own media (not the account). */
@@ -276,11 +350,15 @@ export class JournalistsService {
     await this.prisma.editorialMembership.deleteMany({
       where: { journalistId: id, editorialId: actor.editorialId },
     });
+    await this.prisma.joinRequest.deleteMany({
+      where: { journalistId: id, editorialId: actor.editorialId },
+    });
     const journalist = await this.prisma.journalist.findUnique({ where: { id } });
     if (journalist) {
       await this.editorialGrants.revoke(journalist.userId, actor.editorialId);
     }
-    return this.toAdminDto(await this.loadForAdmin(id), actor, unlock);
+    // Access is gone now, so decryption will fail — return a redacted row.
+    return this.safeAdminDto(await this.loadForAdmin(id), actor, unlock);
   }
 
   async update(
@@ -533,13 +611,39 @@ export class JournalistsService {
             userId_editorialId: { userId: journalist.userId, editorialId: membership.editorialId },
           },
         });
-        if (grant)
+        if (grant?.keyEnvelope)
           return this.hierarchy.unwrapProfileForEditorial(
             journalist.userId,
             membership.editorialId,
             grant.keyEnvelope,
             editorial,
           );
+        if (grant?.sealedKeyEnvelope) {
+          // First read after a consent join / backfill: unseal with the
+          // Editorial KEK and materialise the fast symmetric grant.
+          const profileKey = await this.hierarchy.unsealProfileForEditorial(
+            membership.editorialId,
+            grant.sealedKeyEnvelope,
+            editorial,
+          );
+          await this.prisma.editorialDataKeyGrant.update({
+            where: {
+              userId_editorialId: {
+                userId: journalist.userId,
+                editorialId: membership.editorialId,
+              },
+            },
+            data: {
+              keyEnvelope: this.hierarchy.wrapProfileForEditorial(
+                journalist.userId,
+                membership.editorialId,
+                profileKey,
+                editorial,
+              ),
+            },
+          });
+          return profileKey;
+        }
       } finally {
         editorial.fill(0);
       }
