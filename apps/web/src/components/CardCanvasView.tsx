@@ -80,6 +80,19 @@ function resolveImage(el: CardElement, template: CardTemplate, data: CardViewDat
   return photoUrl(el.src ?? null);
 }
 
+/**
+ * Demo image shown in the design preview when a binding has no real value, so
+ * the designer sees a realistic card instead of a dashed box: a portrait stub
+ * for the photo, the system logo for the editorial logo, and a generic graphic
+ * for custom images.
+ */
+function demoImage(binding: string): string | null {
+  if (binding === 'photo') return '/placeholders/journalist-photo.svg';
+  if (binding === 'logo') return '/icons/logo.svg';
+  if (binding === 'nszhuLogo') return null; // union logo is member-only
+  return '/placeholders/graphic.svg';
+}
+
 function textStyle(el: CardElement, theme: CardTemplate['theme']): CSSProperties {
   return {
     fontSize: el.fontSize ? `${Math.round(el.fontSize * theme.fontScale)}px` : undefined,
@@ -126,7 +139,7 @@ function ElementView({
   };
 
   if (el.type === 'image') {
-    const src = resolveImage(el, template, data);
+    const src = resolveImage(el, template, data) ?? (demo ? demoImage(el.binding) : null);
     if (src) {
       return (
         <img

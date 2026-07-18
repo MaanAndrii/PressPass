@@ -11,6 +11,8 @@ export default function AdminSettingsPage() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [resendApiKey, setResendApiKey] = useState('');
   const [mailFrom, setMailFrom] = useState('');
+  const [googleClientId, setGoogleClientId] = useState('');
+  const [googleClientSecret, setGoogleClientSecret] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -20,6 +22,7 @@ export default function AdminSettingsPage() {
       .then((s) => {
         setSettings(s);
         setMailFrom(s.mailFrom);
+        setGoogleClientId(s.googleClientId ?? '');
       })
       .catch((err) =>
         setError(err instanceof ApiError ? err.message : 'Не вдалося завантажити налаштування'),
@@ -91,6 +94,43 @@ export default function AdminSettingsPage() {
       setSaved(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не вдалося видалити');
+    }
+  }
+
+  async function handleSaveGoogle(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setSaved(false);
+    setBusy(true);
+    try {
+      const body: Record<string, string> = { googleClientId };
+      if (googleClientSecret) body.googleClientSecret = googleClientSecret;
+      const updated = await api<AppSettings>('/admin/settings', { method: 'PUT', body });
+      setSettings(updated);
+      setGoogleClientId(updated.googleClientId ?? '');
+      setGoogleClientSecret('');
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не вдалося зберегти');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleClearGoogle() {
+    if (!window.confirm('Очистити Google OAuth ключі? Вхід через Google вимкнеться.')) return;
+    setError(null);
+    try {
+      const updated = await api<AppSettings>('/admin/settings', {
+        method: 'PUT',
+        body: { googleClientId: '', googleClientSecret: '' },
+      });
+      setSettings(updated);
+      setGoogleClientId('');
+      setGoogleClientSecret('');
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не вдалося очистити');
     }
   }
 
@@ -187,6 +227,55 @@ export default function AdminSettingsPage() {
           {settings?.resendConfigured && (
             <Button type="button" variant="secondary" onClick={() => void handleClearKey()}>
               Очистити ключ
+            </Button>
+          )}
+        </div>
+      </form>
+
+      <form onSubmit={handleSaveGoogle} className="space-y-4 rounded-xl bg-white p-5 shadow">
+        <h2 className="font-semibold">Вхід через Google (OAuth)</h2>
+        <p className="text-sm text-slate-500">
+          Client ID і Client Secret з Google Cloud Console. Redirect URI:{' '}
+          <code className="rounded bg-slate-100 px-1">
+            {'{ваш-домен}'}/api/auth/google/callback
+          </code>
+          . Секрет зберігається зашифровано.
+        </p>
+
+        <div className="rounded-lg bg-slate-50 p-3 text-sm">
+          Статус:{' '}
+          {settings?.googleConfigured ? (
+            <span className="font-semibold text-emerald-700">
+              налаштовано ({settings.googleSecretPreview})
+            </span>
+          ) : (
+            <span className="font-semibold text-amber-700">не налаштовано — кнопку приховано</span>
+          )}
+        </div>
+
+        <Field
+          label="Google Client ID"
+          placeholder="1234567890-abc.apps.googleusercontent.com"
+          autoComplete="off"
+          value={googleClientId}
+          onChange={(e) => setGoogleClientId(e.target.value)}
+        />
+        <Field
+          label={settings?.googleConfigured ? 'Новий Client Secret' : 'Google Client Secret'}
+          type="password"
+          placeholder="GOCSPX-..."
+          autoComplete="off"
+          value={googleClientSecret}
+          onChange={(e) => setGoogleClientSecret(e.target.value)}
+        />
+
+        <div className="flex gap-2">
+          <Button type="submit" disabled={busy}>
+            {busy ? 'Збереження…' : 'Зберегти'}
+          </Button>
+          {settings?.googleConfigured && (
+            <Button type="button" variant="secondary" onClick={() => void handleClearGoogle()}>
+              Очистити
             </Button>
           )}
         </div>

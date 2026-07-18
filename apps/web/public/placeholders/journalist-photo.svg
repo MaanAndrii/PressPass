@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 380" role="img" aria-label="Демонстраційне фото журналіста">
+  <rect width="300" height="380" fill="#e2e8f0"/>
+  <circle cx="150" cy="140" r="72" fill="#94a3b8"/>
+  <path d="M34 380c0-72 52-124 116-124s116 52 116 124z" fill="#94a3b8"/>
+</svg>

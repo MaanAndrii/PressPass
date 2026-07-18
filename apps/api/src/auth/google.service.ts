@@ -6,6 +6,7 @@ import type { Role } from '@presspass/shared';
 import { generateJournalistPublicId } from '../common/public-id';
 import { BlindIndexService } from '../crypto/blind-index.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { SettingsService } from '../settings/settings.service';
 import type { JwtPayload } from './auth.types';
 
 interface GoogleIdTokenPayload {
@@ -32,13 +33,11 @@ export class GoogleAuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly blindIndexes: BlindIndexService,
+    private readonly settings: SettingsService,
   ) {}
 
   get enabled(): boolean {
-    return Boolean(
-      this.config.get<string>('GOOGLE_CLIENT_ID') &&
-      this.config.get<string>('GOOGLE_CLIENT_SECRET'),
-    );
+    return this.settings.googleEnabled();
   }
 
   private get siteBaseUrl(): string {
@@ -61,7 +60,7 @@ export class GoogleAuthService {
       { expiresIn: '10m' },
     );
     const params = new URLSearchParams({
-      client_id: this.config.get<string>('GOOGLE_CLIENT_ID', ''),
+      client_id: this.settings.googleClientId(),
       redirect_uri: this.redirectUri,
       response_type: 'code',
       scope: 'openid email profile',
@@ -89,8 +88,8 @@ export class GoogleAuthService {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         code,
-        client_id: this.config.get<string>('GOOGLE_CLIENT_ID', ''),
-        client_secret: this.config.get<string>('GOOGLE_CLIENT_SECRET', ''),
+        client_id: this.settings.googleClientId(),
+        client_secret: this.settings.googleClientSecret(),
         redirect_uri: this.redirectUri,
         grant_type: 'authorization_code',
       }),
@@ -130,7 +129,7 @@ export class GoogleAuthService {
     };
     const issuerValid =
       payload.iss === 'https://accounts.google.com' || payload.iss === 'accounts.google.com';
-    if (payload.aud !== this.config.get<string>('GOOGLE_CLIENT_ID') || !issuerValid) {
+    if (payload.aud !== this.settings.googleClientId() || !issuerValid) {
       throw new BadRequestException('Invalid Google ID token');
     }
     return payload;

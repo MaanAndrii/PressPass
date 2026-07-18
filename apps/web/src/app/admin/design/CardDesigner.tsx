@@ -36,7 +36,8 @@ const SAMPLE: CardViewData = {
   cardNumber: 'PP-0000-000000',
   expireDate: '2027-12-31',
   status: 'ACTIVE',
-  photoPath: '/icons/icon-192.png',
+  // Left empty so the preview shows the demo photo/logo placeholders.
+  photoPath: null,
   logoOverride: null,
   nszhuMember: true,
 };
