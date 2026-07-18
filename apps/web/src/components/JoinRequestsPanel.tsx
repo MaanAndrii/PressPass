@@ -56,7 +56,7 @@ export function JoinRequestsPanel() {
             className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white p-3 shadow-sm"
           >
             <span className="text-sm">
-              Редакція <b>{request.editorialName}</b> запрошує вас приєднатися.
+              <b>{request.editorialName}</b> запрошує вас приєднатися до редакції.
             </span>
             <div className="flex gap-2">
               <Button

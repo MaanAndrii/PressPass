@@ -25,6 +25,7 @@ import { EncryptedFileService } from '../crypto/encrypted-file.service';
 import { PublicMediaCacheService } from '../crypto/public-media-cache.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { QrTokenService } from '../qr/qr-token.service';
+import { QrProjectionCacheService } from '../qr/qr-projection-cache.service';
 import type { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Injectable()
@@ -33,6 +34,7 @@ export class MeService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly qrToken: QrTokenService,
+    private readonly qrProjections: QrProjectionCacheService,
     private readonly userKeys: UserKeyMaterialService,
     private readonly unlockSessions: UnlockSessionService,
     private readonly payloads: DomainPayloadService,
@@ -53,7 +55,7 @@ export class MeService {
     return requests.map((request) => ({
       id: request.id,
       editorialId: request.editorial.id,
-      editorialName: request.editorial.publicName || `Редакція #${request.editorial.id}`,
+      editorialName: request.editorial.publicName || `Медіа #${request.editorial.id}`,
     }));
   }
 
@@ -201,7 +203,7 @@ export class MeService {
           passportData: dto.passportData,
           taxNumber: dto.taxNumber,
           phone: dto.phone,
-          nszhuMember: journalist.nszhuMember,
+          nszhuMember: dto.nszhuMember ?? journalist.nszhuMember,
         },
         key,
       );
@@ -506,18 +508,24 @@ export class MeService {
     } finally {
       key.fill(0);
     }
-    const token = await this.qrToken.sign(card.uuid, {
-      cardNumber: card.cardNumber,
-      expireDate: card.expireDate,
-      fullName: card.journalist.fullName,
-      fullNameEn: card.journalist.fullNameEn,
-      position: card.position,
-      organization: card.editorial?.displayNameUk || card.editorial?.name || '',
-      photoPath,
-      editorial: qrEditorial,
-      nszhuMember: card.journalist.nszhuMember,
-      nszhuLogoPath: null,
-    });
+    // Store the projection server-side and encode only a short id in the QR, so
+    // the code stays low-density and scans reliably.
+    const token = this.qrProjections.put(
+      card.uuid,
+      {
+        cardNumber: card.cardNumber,
+        expireDate: card.expireDate,
+        fullName: card.journalist.fullName,
+        fullNameEn: card.journalist.fullNameEn,
+        position: card.position,
+        organization: card.editorial?.displayNameUk || card.editorial?.name || '',
+        photoPath,
+        editorial: qrEditorial,
+        nszhuMember: card.journalist.nszhuMember,
+        nszhuLogoPath: null,
+      },
+      this.qrToken.ttlSeconds,
+    );
     return {
       verifyUrl: buildVerifyUrl(baseUrl, card.uuid, token),
       expiresInSeconds: this.qrToken.ttlSeconds,

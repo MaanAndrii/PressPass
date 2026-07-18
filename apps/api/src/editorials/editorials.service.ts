@@ -287,6 +287,16 @@ export class EditorialsService {
           key,
         ),
       } as T;
+      // Backfill the public label for editorials created before it existed, so a
+      // journalist reviewing a join request sees the real name (fire-and-forget).
+      const currentPublic = (editorial as { publicName?: string }).publicName ?? '';
+      const record = hydrated as Record<string, unknown>;
+      const label = String(record.displayNameUk || record.name || '').trim();
+      if (!currentPublic && label) {
+        void this.prisma.editorial
+          .update({ where: { id: editorial.id }, data: { publicName: label.slice(0, 120) } })
+          .catch(() => undefined);
+      }
       const fileId = hydrated.logoPath?.match(/^\/media\/([0-9a-f-]+)$/i)?.[1];
       if (fileId) {
         const logo = await this.files.read(fileId, key);
