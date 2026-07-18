@@ -1,5 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsDateString,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 /** Анкета користувача після реєстрації — усі поля обовʼязкові. */
 export class UpdateProfileDto {
@@ -32,4 +40,9 @@ export class UpdateProfileDto {
   @ApiProperty({ example: '+380501234567' })
   @Matches(/^\+?[\d\s()-]{10,20}$/, { message: 'Невірний формат номера телефону' })
   phone!: string;
+
+  @ApiPropertyOptional({ description: 'Член Національної спілки журналістів України' })
+  @IsOptional()
+  @IsBoolean()
+  nszhuMember?: boolean;
 }

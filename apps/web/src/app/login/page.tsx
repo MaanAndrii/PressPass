@@ -1,6 +1,6 @@
 'use client';
 
-import { Button, Field } from '@presspass/ui';
+import { Button, Field, Modal } from '@presspass/ui';
 import { isAdminRole, type AuthConfig, type LoginResponse } from '@presspass/shared';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -16,8 +16,14 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [encryptionPassphrase, setEncryptionPassphrase] = useState('');
   const [googleEnabled, setGoogleEnabled] = useState(false);
+  // Set after a successful login when the account is an admin: opens a modal to
+  // collect the encryption credential (passphrase or key-file) — journalists
+  // never see it.
+  const [pendingAdmin, setPendingAdmin] = useState<{ enroll: boolean } | null>(null);
+  const [adminCred, setAdminCred] = useState('');
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [modalBusy, setModalBusy] = useState(false);
   const [error, setError] = useState<string | null>(
     searchParams.get('error') === 'google'
       ? 'Вхід через Google не вдався. Спробуйте ще раз.'
@@ -43,17 +49,8 @@ function LoginForm() {
       });
       saveSession(result.accessToken, result.user, result.unlockToken);
       if (isAdminRole(result.user.role)) {
-        if (!encryptionPassphrase)
-          throw new ApiError(400, 'Введіть окрему криптографічну фразу адміністратора');
-        const endpoint = result.encryptionEnrollmentRequired
-          ? '/encryption/enroll'
-          : '/encryption/unlock';
-        const unlocked = await api<{ unlockToken: string }>(endpoint, {
-          method: 'POST',
-          body: { passphrase: encryptionPassphrase },
-        });
-        saveUnlockToken(unlocked.unlockToken);
-        router.replace('/admin');
+        // Admins need a separate encryption credential — ask for it in a modal.
+        setPendingAdmin({ enroll: Boolean(result.encryptionEnrollmentRequired) });
       } else if (result.user.journalist && !result.user.journalist.profileComplete) {
         router.replace('/profile');
       } else {
@@ -69,6 +66,35 @@ function LoginForm() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function completeAdminUnlock() {
+    if (!pendingAdmin) return;
+    setModalError(null);
+    if (adminCred.length < 12) {
+      setModalError('Введіть фразу (мін. 12 символів) або оберіть ключ-файл');
+      return;
+    }
+    setModalBusy(true);
+    try {
+      const endpoint = pendingAdmin.enroll ? '/encryption/enroll' : '/encryption/unlock';
+      const unlocked = await api<{ unlockToken: string }>(endpoint, {
+        method: 'POST',
+        body: { passphrase: adminCred },
+      });
+      saveUnlockToken(unlocked.unlockToken);
+      router.replace('/admin');
+    } catch (err) {
+      setModalError(err instanceof ApiError ? err.message : 'Не вдалося розблокувати дані');
+    } finally {
+      setModalBusy(false);
+    }
+  }
+
+  function closeAdminModal() {
+    setPendingAdmin(null);
+    setAdminCred('');
+    setModalError(null);
   }
 
   return (
@@ -102,11 +128,6 @@ function LoginForm() {
             minLength={8}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-          />
-          <EncryptionCredentialInput
-            label="Криптографічна фраза (лише для адміністратора)"
-            value={encryptionPassphrase}
-            onChange={setEncryptionPassphrase}
           />
           {error && <p className="text-sm text-red-600">{error}</p>}
           <Button type="submit" disabled={loading} className="w-full">
@@ -160,6 +181,40 @@ function LoginForm() {
           </Link>
         </p>
       </div>
+
+      <Modal
+        open={pendingAdmin !== null}
+        onClose={closeAdminModal}
+        title="Доступ адміністратора"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={closeAdminModal}
+              className="rounded-lg px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              Скасувати
+            </button>
+            <Button onClick={() => void completeAdminUnlock()} disabled={modalBusy}>
+              {modalBusy ? 'Розблокування…' : 'Увійти'}
+            </Button>
+          </>
+        }
+      >
+        <p className="mb-3 text-sm text-slate-600">
+          {pendingAdmin?.enroll
+            ? 'Задайте окрему криптографічну фразу або згенеруйте ключ-файл для шифрування даних.'
+            : 'Введіть окрему криптографічну фразу або оберіть ключ-файл.'}
+        </p>
+        <EncryptionCredentialInput
+          label="Криптографічна фраза"
+          value={adminCred}
+          onChange={setAdminCred}
+          allowGenerate={pendingAdmin?.enroll}
+          generateFilename="presspass-admin.key"
+        />
+        {modalError && <p className="mt-2 text-sm text-red-600">{modalError}</p>}
+      </Modal>
     </main>
   );
 }

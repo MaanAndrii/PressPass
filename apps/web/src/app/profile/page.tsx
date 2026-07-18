@@ -25,6 +25,7 @@ export default function ProfilePage() {
     passportData: '',
     taxNumber: '',
     phone: '',
+    nszhuMember: false,
   });
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -51,6 +52,7 @@ export default function ProfilePage() {
             passportData: user.journalist.passportData ?? '',
             taxNumber: user.journalist.taxNumber ?? '',
             phone: user.journalist.phone ?? '',
+            nszhuMember: Boolean(user.journalist.nszhuMember),
           });
         }
       })
@@ -295,6 +297,16 @@ export default function ProfilePage() {
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
             />
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                disabled={profileComplete}
+                checked={form.nszhuMember}
+                onChange={(e) => setForm({ ...form, nszhuMember: e.target.checked })}
+                className="h-4 w-4 rounded border-slate-300"
+              />
+              Я — член Національної спілки журналістів України (НСЖУ)
+            </label>
             {error && <p className="text-sm text-red-600">{error}</p>}
             {saved && (
               <p className="text-sm text-emerald-600">

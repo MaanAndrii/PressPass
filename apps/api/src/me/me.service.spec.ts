@@ -23,6 +23,7 @@ describe('MeService owner encrypted profile', () => {
     prisma,
     new ConfigService({}),
     {} as never,
+    { put: jest.fn() } as never,
     userKeys,
     sessions,
     payloads,
