@@ -62,6 +62,11 @@ export default function ProfilePage() {
           router.replace('/login');
           return;
         }
+        // Reopened app / expired encryption session: re-unlock, don't error.
+        if (err instanceof ApiError && err.message === 'Encryption unlock required') {
+          router.replace('/encryption?next=/profile');
+          return;
+        }
         setError('Не вдалося завантажити профіль');
       })
       // Форму показуємо лише після завантаження профілю, інакше відповідь
