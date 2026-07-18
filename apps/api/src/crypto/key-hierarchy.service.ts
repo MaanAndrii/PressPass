@@ -186,6 +186,89 @@ export class KeyHierarchyService {
     );
   }
 
+  // ── Editorial read key ───────────────────────────────────────────────────
+  // Per-editorial RSA keypair mirroring the system read key. It lets a
+  // journalist seal their profile key to the editorial when confirming a join
+  // request (no admin online); an editorial admin later unseals it with the
+  // Editorial KEK to materialise a normal grant.
+
+  private editorialReadPrivateContext(editorialId: number) {
+    return {
+      entity: 'editorial-read-key',
+      entityId: String(editorialId),
+      field: 'private-key',
+      ownerId: `editorial:${editorialId}`,
+    } as const;
+  }
+
+  /** Creates the editorial read keypair if missing; returns the public key PEM. */
+  async ensureEditorialReadKey(editorialId: number, editorialKey: Buffer): Promise<string> {
+    const material = await this.prisma.editorialKeyMaterial.findUniqueOrThrow({
+      where: { editorialId },
+    });
+    if (material.readPublicKey) return material.readPublicKey;
+    const { publicKey, privateKey } = generateKeyPairSync('rsa', {
+      modulusLength: 3072,
+      publicExponent: 0x10001,
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    });
+    await this.prisma.editorialKeyMaterial.update({
+      where: { editorialId },
+      data: {
+        readPublicKey: publicKey,
+        readPrivateKeyEnvelope: this.json(
+          this.crypto.encrypt(
+            privateKey,
+            editorialKey,
+            this.editorialReadPrivateContext(editorialId),
+          ),
+        ),
+      },
+    });
+    return publicKey;
+  }
+
+  async getEditorialReadPublicKey(editorialId: number): Promise<string | null> {
+    const material = await this.prisma.editorialKeyMaterial.findUnique({ where: { editorialId } });
+    return material?.readPublicKey ?? null;
+  }
+
+  /** Seals a profile key to an editorial read public key (RSA-OAEP-256). */
+  sealProfileForEditorial(profileKey: Buffer, publicKey: string): Prisma.InputJsonValue {
+    const ciphertext = publicEncrypt(
+      { key: publicKey, oaepHash: 'sha256', padding: constants.RSA_PKCS1_OAEP_PADDING },
+      profileKey,
+    ).toString('base64url');
+    return this.json({ version: 1, algorithm: 'RSA-OAEP-256', ciphertext });
+  }
+
+  /** Recovers a profile key from its editorial seal using the Editorial KEK. */
+  async unsealProfileForEditorial(
+    editorialId: number,
+    envelope: unknown,
+    editorialKey: Buffer,
+  ): Promise<Buffer> {
+    const material = await this.prisma.editorialKeyMaterial.findUniqueOrThrow({
+      where: { editorialId },
+    });
+    if (!material.readPrivateKeyEnvelope) throw new Error('Editorial read key is not provisioned');
+    const privateKey = this.crypto
+      .decrypt(
+        material.readPrivateKeyEnvelope as never,
+        editorialKey,
+        this.editorialReadPrivateContext(editorialId),
+      )
+      .toString('utf8');
+    const sealed = envelope as { version?: number; algorithm?: string; ciphertext?: string };
+    if (sealed.version !== 1 || sealed.algorithm !== 'RSA-OAEP-256' || !sealed.ciphertext)
+      throw new Error('Unsupported editorial key envelope');
+    return privateDecrypt(
+      { key: privateKey, oaepHash: 'sha256', padding: constants.RSA_PKCS1_OAEP_PADDING },
+      Buffer.from(sealed.ciphertext, 'base64url'),
+    );
+  }
+
   async grantSystemToAdmin(
     adminUserId: number,
     systemKey: Buffer,
@@ -329,6 +412,7 @@ export class KeyHierarchyService {
           },
         });
       });
+      await this.ensureEditorialReadKey(editorialId, editorialKey);
       return Buffer.from(editorialKey);
     } finally {
       editorialKey.fill(0);

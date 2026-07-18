@@ -56,6 +56,12 @@ export class EncryptionAccessService {
     // every profile can be sealed for universal read access (backfills upgrades).
     const systemKey = keys.get('system');
     if (systemKey) await this.hierarchy.ensureSystemReadKey(systemKey);
+    // Backfill each unlocked editorial's read key so join confirmations can seal
+    // to it even for editorials created before this feature.
+    for (const [name, key] of keys) {
+      const match = /^editorial:(\d+)$/.exec(name);
+      if (match) await this.hierarchy.ensureEditorialReadKey(Number(match[1]), key);
+    }
     try {
       const result = this.sessions.create(userId, keys);
       return { unlockToken: result.token, expiresAt: result.expiresAt };

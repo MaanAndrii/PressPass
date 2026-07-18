@@ -22,6 +22,12 @@ enum CardStatus {
   EXPIRED
 }
 
+enum JoinRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 /// Authentication account (both administrators and journalists).
 /// password_hash is NULL for Google-only accounts.
 model User {
@@ -70,7 +76,12 @@ model EditorialDataKeyGrant {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   editorialId Int       @map("editorial_id")
   editorial   Editorial @relation(fields: [editorialId], references: [id], onDelete: Cascade)
-  keyEnvelope Json      @map("key_envelope")
+  // Profile key wrapped under the Editorial KEK (fast symmetric path). NULL when
+  // only the RSA seal below exists yet — an admin materialises it on first read.
+  keyEnvelope Json?     @map("key_envelope")
+  // Profile key sealed (RSA-OAEP) to the editorial read public key, produced
+  // without the Editorial KEK (join confirmation, journalist login backfill).
+  sealedKeyEnvelope Json? @map("sealed_key_envelope")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
@@ -123,6 +134,7 @@ model Journalist {
   updatedAt      DateTime              @updatedAt @map("updated_at")
   cards          Card[]
   memberships    EditorialMembership[]
+  joinRequests   JoinRequest[]
 
   @@map("journalists")
 }
@@ -174,6 +186,11 @@ model AppSetting {
 model Editorial {
   id                         Int                     @id @default(autoincrement())
   name                       String
+  // Public, non-secret label shown where the editorial key is unavailable —
+  // e.g. a journalist reviewing a join request. The editorial name is already
+  // public (printed on every credential and the verify page); sensitive fields
+  // (director, edrpou, address, phone, email) stay encrypted.
+  publicName                 String                  @default("") @map("public_name")
   displayNameUk              String                  @default("") @map("display_name_uk")
   displayNameEn              String                  @default("") @map("display_name_en")
   // Державний ідентифікатор медіа, напр. R40-02551 (маска ***-*****).
@@ -194,6 +211,7 @@ model Editorial {
   admins                     User[]
   cardTemplate               CardTemplate?
   members                    EditorialMembership[]
+  joinRequests               JoinRequest[]
   dataKeyGrants              EditorialDataKeyGrant[]
   encryptedData              Json?                   @map("encrypted_data")
   cardNumberPrefixBlindIndex String?                 @unique @map("card_number_prefix_blind_index")
@@ -217,6 +235,26 @@ model EditorialMembership {
   @@unique([editorialId, journalistId])
   @@index([journalistId])
   @@map("editorial_memberships")
+}
+
+/// Consent-based join request: an editorial admin adds a journalist by public
+/// id, creating a PENDING request. The journalist confirms in their cabinet;
+/// only then is membership created. On accept the journalist seals their profile
+/// key to the editorial read public key (sealedProfileKey), which an editorial
+/// admin later materialises into a normal grant.
+model JoinRequest {
+  id               Int               @id @default(autoincrement())
+  editorialId      Int               @map("editorial_id")
+  editorial        Editorial         @relation(fields: [editorialId], references: [id], onDelete: Cascade)
+  journalistId     Int               @map("journalist_id")
+  journalist       Journalist        @relation(fields: [journalistId], references: [id], onDelete: Cascade)
+  status       JoinRequestStatus @default(PENDING)
+  createdAt    DateTime          @default(now()) @map("created_at")
+  respondedAt  DateTime?         @map("responded_at")
+
+  @@unique([editorialId, journalistId])
+  @@index([journalistId])
+  @@map("join_requests")
 }
 
 /// Press credential. `uuid` (UUIDv7) is the only identifier exposed in QR codes.
@@ -307,6 +345,11 @@ model EditorialKeyMaterial {
   editorial   Editorial               @relation(fields: [editorialId], references: [id], onDelete: Cascade)
   keyVersion  Int                     @default(1) @map("key_version")
   fingerprint String                  @unique
+  // Editorial READ keypair: the public key lets a journalist seal their profile
+  // key to the editorial when confirming a join request (no admin online); the
+  // private key is stored only encrypted under the Editorial KEK.
+  readPublicKey          String?      @map("read_public_key")
+  readPrivateKeyEnvelope Json?        @map("read_private_key_envelope")
   createdAt   DateTime                @default(now()) @map("created_at")
   rotatedAt   DateTime?               @map("rotated_at")
   adminSlots  EditorialAdminKeySlot[]

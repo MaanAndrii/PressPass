@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { AdminJournalist } from '@presspass/shared';
+import type { AdminJournalist, AttachResult } from '@presspass/shared';
 
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { JwtPayload } from '../auth/auth.types';
@@ -58,7 +58,7 @@ export class JournalistsController {
     @Body() dto: AttachJournalistDto,
     @CurrentUser() user: JwtPayload,
     @Headers('x-unlock-token') unlock?: string,
-  ): Promise<AdminJournalist> {
+  ): Promise<AttachResult> {
     return this.journalistsService.attach(dto, user, unlock);
   }
 

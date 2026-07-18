@@ -10,6 +10,7 @@ import {
   buildVerifyUrl,
   type CardQr,
   type CardResponse,
+  type JoinRequestInfo,
   type Role,
   type UserProfile,
 } from '@presspass/shared';
@@ -18,6 +19,7 @@ import { mapCard } from '../common/card.mapper';
 import { mapJournalist } from '../common/journalist.mapper';
 import { UserKeyMaterialService } from '../crypto/user-key-material.service';
 import { UnlockSessionService } from '../crypto/unlock-session.service';
+import { KeyHierarchyService } from '../crypto/key-hierarchy.service';
 import { DomainPayloadService } from '../crypto/domain-payload.service';
 import { EncryptedFileService } from '../crypto/encrypted-file.service';
 import { PublicMediaCacheService } from '../crypto/public-media-cache.service';
@@ -36,7 +38,84 @@ export class MeService {
     private readonly payloads: DomainPayloadService,
     private readonly files: EncryptedFileService,
     private readonly publicMedia: PublicMediaCacheService,
+    private readonly hierarchy: KeyHierarchyService,
   ) {}
+
+  /** Pending invitations for the journalist to confirm joining an editorial. */
+  async listJoinRequests(userId: number): Promise<JoinRequestInfo[]> {
+    const journalist = await this.prisma.journalist.findUnique({ where: { userId } });
+    if (!journalist) return [];
+    const requests = await this.prisma.joinRequest.findMany({
+      where: { journalistId: journalist.id, status: 'PENDING' },
+      include: { editorial: { select: { id: true, publicName: true } } },
+      orderBy: { id: 'asc' },
+    });
+    return requests.map((request) => ({
+      id: request.id,
+      editorialId: request.editorial.id,
+      editorialName: request.editorial.publicName || `Редакція #${request.editorial.id}`,
+    }));
+  }
+
+  /**
+   * Journalist confirms or rejects a join request. On confirm the profile key is
+   * sealed to the editorial read key (no admin need be online) and membership is
+   * created; an editorial admin materialises the full grant on first access.
+   */
+  async respondToJoinRequest(
+    userId: number,
+    requestId: number,
+    accept: boolean,
+    unlockToken?: string,
+  ): Promise<JoinRequestInfo[]> {
+    const journalist = await this.prisma.journalist.findUnique({ where: { userId } });
+    if (!journalist) throw new NotFoundException('No journalist profile for this user');
+    const request = await this.prisma.joinRequest.findUnique({ where: { id: requestId } });
+    if (!request || request.journalistId !== journalist.id || request.status !== 'PENDING')
+      throw new NotFoundException('Запит на приєднання не знайдено');
+
+    if (!accept) {
+      await this.prisma.joinRequest.update({
+        where: { id: requestId },
+        data: { status: 'REJECTED', respondedAt: new Date() },
+      });
+      return this.listJoinRequests(userId);
+    }
+
+    const publicKey = await this.hierarchy.getEditorialReadPublicKey(request.editorialId);
+    if (!publicKey)
+      throw new BadRequestException(
+        'Редакція ще не готова прийняти приєднання. Спробуйте пізніше.',
+      );
+    const key = this.profileKey(unlockToken, userId);
+    try {
+      const sealed = this.hierarchy.sealProfileForEditorial(key, publicKey);
+      await this.prisma.$transaction([
+        this.prisma.editorialMembership.upsert({
+          where: {
+            editorialId_journalistId: {
+              editorialId: request.editorialId,
+              journalistId: journalist.id,
+            },
+          },
+          update: {},
+          create: { editorialId: request.editorialId, journalistId: journalist.id },
+        }),
+        this.prisma.editorialDataKeyGrant.upsert({
+          where: { userId_editorialId: { userId, editorialId: request.editorialId } },
+          update: { sealedKeyEnvelope: sealed },
+          create: { userId, editorialId: request.editorialId, sealedKeyEnvelope: sealed },
+        }),
+        this.prisma.joinRequest.update({
+          where: { id: requestId },
+          data: { status: 'ACCEPTED', respondedAt: new Date() },
+        }),
+      ]);
+    } finally {
+      key.fill(0);
+    }
+    return this.listJoinRequests(userId);
+  }
 
   async getProfile(userId: number, unlockToken?: string): Promise<UserProfile> {
     const user = await this.prisma.user.findUnique({

@@ -88,6 +88,32 @@ export class AuthService {
         });
     }
 
+    // Backfill editorial grants for memberships that still lack one (e.g. a
+    // Superadmin attach before this login, or legacy data): seal the profile key
+    // to each editorial read key so editorial admins can materialise the grant.
+    if (unlockedDataKey && user.journalist) {
+      for (const membership of user.journalist.memberships) {
+        const editorialId = membership.editorial.id;
+        const grant = await this.prisma.editorialDataKeyGrant.findUnique({
+          where: { userId_editorialId: { userId: user.id, editorialId } },
+        });
+        if (grant?.keyEnvelope || grant?.sealedKeyEnvelope) continue;
+        const publicKey = await this.hierarchy.getEditorialReadPublicKey(editorialId);
+        if (!publicKey) continue;
+        await this.prisma.editorialDataKeyGrant.upsert({
+          where: { userId_editorialId: { userId: user.id, editorialId } },
+          update: {
+            sealedKeyEnvelope: this.hierarchy.sealProfileForEditorial(unlockedDataKey, publicKey),
+          },
+          create: {
+            userId: user.id,
+            editorialId,
+            sealedKeyEnvelope: this.hierarchy.sealProfileForEditorial(unlockedDataKey, publicKey),
+          },
+        });
+      }
+    }
+
     if (!user.emailVerifiedAt) {
       // Стабільний код для фронтенда: він переводить на сторінку підтвердження.
       throw new ForbiddenException('EMAIL_NOT_VERIFIED');

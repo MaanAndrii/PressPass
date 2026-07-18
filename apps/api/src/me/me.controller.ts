@@ -4,6 +4,8 @@ import {
   Controller,
   Get,
   Headers,
+  Param,
+  ParseIntPipe,
   Post,
   Put,
   Query,
@@ -13,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { CardQr, CardResponse, UserProfile } from '@presspass/shared';
+import type { CardQr, CardResponse, JoinRequestInfo, UserProfile } from '@presspass/shared';
 import type { Request } from 'express';
 
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -95,6 +97,31 @@ export class MeController {
     @Body() dto: ChangePasswordDto,
   ): Promise<{ success: boolean }> {
     return this.meService.changePassword(user.sub, dto.currentPassword, dto.newPassword);
+  }
+
+  @Get('me/join-requests')
+  @ApiOperation({ summary: 'Pending editorial join requests to confirm/reject' })
+  joinRequests(@CurrentUser() user: JwtPayload): Promise<JoinRequestInfo[]> {
+    return this.meService.listJoinRequests(user.sub);
+  }
+
+  @Post('me/join-requests/:id/accept')
+  @ApiOperation({ summary: 'Confirm joining an editorial (creates membership + grant)' })
+  acceptJoinRequest(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseIntPipe) id: number,
+    @Headers('x-unlock-token') unlock?: string,
+  ): Promise<JoinRequestInfo[]> {
+    return this.meService.respondToJoinRequest(user.sub, id, true, unlock);
+  }
+
+  @Post('me/join-requests/:id/reject')
+  @ApiOperation({ summary: 'Reject an editorial join request' })
+  rejectJoinRequest(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<JoinRequestInfo[]> {
+    return this.meService.respondToJoinRequest(user.sub, id, false);
   }
 
   @Get('cards')
