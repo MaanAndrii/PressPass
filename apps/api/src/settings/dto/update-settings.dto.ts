@@ -16,4 +16,21 @@ export class UpdateSettingsDto {
   @IsString()
   @MaxLength(200)
   mailFrom?: string;
+
+  @ApiPropertyOptional({
+    example: '1234567890-abc.apps.googleusercontent.com',
+    description: 'Google OAuth client id; порожній рядок очищає (повертає до env)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  googleClientId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Google OAuth client secret; порожній рядок очищає (повертає до env)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  googleClientSecret?: string;
 }

@@ -28,6 +28,12 @@ export interface AppSettings {
   mailFrom: string;
   /** Uploaded NSZHU logo path (shown on union members' cards), or null. */
   nszhuLogoPath: string | null;
+  /** Whether Google OAuth is configured (panel or env). */
+  googleConfigured: boolean;
+  /** Stored Google client id (not secret; shown for reference), or null. */
+  googleClientId: string | null;
+  /** Masked preview of the stored Google client secret, or null. */
+  googleSecretPreview: string | null;
 }
 
 /** GET /branding — public branding assets needed to render a card. */
@@ -67,6 +73,10 @@ export interface UpdateSettingsInput {
   /** New Resend API key; empty string clears it (falls back to env). */
   resendApiKey?: string;
   mailFrom?: string;
+  /** Google OAuth client id; empty string clears it (falls back to env). */
+  googleClientId?: string;
+  /** Google OAuth client secret; empty string clears it (falls back to env). */
+  googleClientSecret?: string;
 }
 
 /** A catalogue journalist position (Ukrainian + English name). */

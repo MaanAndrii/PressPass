@@ -390,12 +390,35 @@ export class CardsService {
       throw new BadRequestException(
         'Журналіст ще не надав редакції зашифрований доступ до профілю',
       );
-    return this.hierarchy.unwrapProfileForEditorial(
-      journalist.userId,
-      editorialId,
-      grant.keyEnvelope,
-      editorialKey,
-    );
+    if (grant.keyEnvelope)
+      return this.hierarchy.unwrapProfileForEditorial(
+        journalist.userId,
+        editorialId,
+        grant.keyEnvelope,
+        editorialKey,
+      );
+    if (grant.sealedKeyEnvelope) {
+      // Consent join before the symmetric grant was materialised: unseal with the
+      // Editorial KEK and cache the fast envelope for next time.
+      const profileKey = await this.hierarchy.unsealProfileForEditorial(
+        editorialId,
+        grant.sealedKeyEnvelope,
+        editorialKey,
+      );
+      await this.prisma.editorialDataKeyGrant.update({
+        where: { userId_editorialId: { userId: journalist.userId, editorialId } },
+        data: {
+          keyEnvelope: this.hierarchy.wrapProfileForEditorial(
+            journalist.userId,
+            editorialId,
+            profileKey,
+            editorialKey,
+          ),
+        },
+      });
+      return profileKey;
+    }
+    throw new BadRequestException('Журналіст ще не надав редакції зашифрований доступ до профілю');
   }
   private decryptJournalistWithKey(journalist: Journalist, profile: Buffer): Journalist {
     return journalist.encryptedData

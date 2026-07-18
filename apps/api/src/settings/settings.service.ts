@@ -11,6 +11,8 @@ interface SecretSettings {
   resendApiKey: string | null;
   mailFrom: string;
   nszhuLogoPath: string | null;
+  googleClientId: string | null;
+  googleClientSecret: string | null;
 }
 @Injectable()
 export class SettingsService {
@@ -37,14 +39,33 @@ export class SettingsService {
     return this.runtime?.nszhuLogoPath ?? null;
   }
 
+  // Google OAuth secrets: served from the in-memory runtime cache (warmed when an
+  // admin loads settings) with the environment as the durable fallback. After a
+  // restart, panel-only values apply again once an admin opens settings.
+  googleClientId(): string {
+    return this.runtime?.googleClientId || this.config.get<string>('GOOGLE_CLIENT_ID') || '';
+  }
+  googleClientSecret(): string {
+    return (
+      this.runtime?.googleClientSecret || this.config.get<string>('GOOGLE_CLIENT_SECRET') || ''
+    );
+  }
+  googleEnabled(): boolean {
+    return Boolean(this.googleClientId() && this.googleClientSecret());
+  }
+
   async getPublic(userId?: number, token?: string): Promise<AppSettings> {
     if (userId && token) await this.load(userId, token);
     const key = await this.resendApiKey();
+    const googleSecret = this.googleClientSecret();
     return {
       resendConfigured: Boolean(key),
       resendKeyPreview: key ? mask(key) : null,
       mailFrom: await this.mailFrom(),
       nszhuLogoPath: await this.nszhuLogoPath(),
+      googleConfigured: this.googleEnabled(),
+      googleClientId: this.googleClientId() || null,
+      googleSecretPreview: googleSecret ? mask(googleSecret) : null,
     };
   }
   async update(input: UpdateSettingsInput, userId: number, token?: string): Promise<AppSettings> {
@@ -56,6 +77,12 @@ export class SettingsService {
         ? { resendApiKey: input.resendApiKey.trim() || null }
         : {}),
       ...(input.mailFrom !== undefined ? { mailFrom: input.mailFrom.trim() } : {}),
+      ...(input.googleClientId !== undefined
+        ? { googleClientId: input.googleClientId.trim() || null }
+        : {}),
+      ...(input.googleClientSecret !== undefined
+        ? { googleClientSecret: input.googleClientSecret.trim() || null }
+        : {}),
     };
     try {
       await this.save(next, key);
@@ -121,6 +148,8 @@ export class SettingsService {
       resendApiKey: row?.resendApiKey || null,
       mailFrom: row?.mailFrom || this.config.get('MAIL_FROM', 'PressPass <onboarding@resend.dev>'),
       nszhuLogoPath: row?.nszhuLogoPath ?? null,
+      googleClientId: null,
+      googleClientSecret: null,
     };
   }
   private async save(data: SecretSettings, key: Buffer): Promise<void> {
