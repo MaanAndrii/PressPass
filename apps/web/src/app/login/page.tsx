@@ -9,6 +9,7 @@ import { type FormEvent, Suspense, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { API_URL } from '@/lib/config';
 import { saveSession, saveUnlockToken } from '@/lib/auth';
+import { EncryptionCredentialInput } from '@/components/EncryptionCredentialInput';
 
 function LoginForm() {
   const router = useRouter();
@@ -102,13 +103,10 @@ function LoginForm() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-          <Field
+          <EncryptionCredentialInput
             label="Криптографічна фраза (лише для адміністратора)"
-            type="password"
-            autoComplete="off"
-            minLength={12}
             value={encryptionPassphrase}
-            onChange={(e) => setEncryptionPassphrase(e.target.value)}
+            onChange={setEncryptionPassphrase}
           />
           {error && <p className="text-sm text-red-600">{error}</p>}
           <Button type="submit" disabled={loading} className="w-full">

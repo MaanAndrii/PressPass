@@ -7,6 +7,7 @@ import { UserKeyMaterialService } from '../crypto/user-key-material.service';
 import { UnlockSessionService } from '../crypto/unlock-session.service';
 import { BlindIndexService } from '../crypto/blind-index.service';
 import { DomainPayloadService } from '../crypto/domain-payload.service';
+import { KeyHierarchyService } from '../crypto/key-hierarchy.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from './auth.service';
 import { createJwtServiceMock } from './testing/jwt-service.mock';
@@ -35,6 +36,13 @@ describe('AuthService encrypted login', () => {
           ),
         },
         { provide: DomainPayloadService, useValue: { decrypt: jest.fn() } },
+        {
+          provide: KeyHierarchyService,
+          useValue: {
+            getSystemReadPublicKey: jest.fn(() => Promise.resolve(null)),
+            sealProfileForSystem: jest.fn(),
+          },
+        },
       ],
     }).compile();
     service = module.get(AuthService);

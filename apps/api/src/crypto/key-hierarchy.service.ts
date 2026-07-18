@@ -113,10 +113,77 @@ export class KeyHierarchyService {
           },
         },
       });
+      await this.ensureSystemReadKey(systemKey);
       return Buffer.from(systemKey);
     } finally {
       systemKey.fill(0);
     }
+  }
+
+  // ── System read key ────────────────────────────────────────────────────────
+  // An RSA keypair that lets an unlocked Superadmin read every profile without
+  // an editorial grant. The public key seals each profile data key (no live
+  // session needed, so self-registration works); the private key is stored only
+  // encrypted under the System KEK, so a database dump alone still reveals it not.
+
+  private readonly systemReadPrivateContext = {
+    entity: 'system-read-key',
+    entityId: '1',
+    field: 'private-key',
+    ownerId: 'system',
+  } as const;
+
+  /** Creates the system read keypair if missing; returns the public key PEM. */
+  async ensureSystemReadKey(systemKey: Buffer): Promise<string> {
+    const material = await this.prisma.systemKeyMaterial.findUniqueOrThrow({ where: { id: 1 } });
+    if (material.readPublicKey) return material.readPublicKey;
+    const { publicKey, privateKey } = generateKeyPairSync('rsa', {
+      modulusLength: 3072,
+      publicExponent: 0x10001,
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    });
+    await this.prisma.systemKeyMaterial.update({
+      where: { id: 1 },
+      data: {
+        readPublicKey: publicKey,
+        readPrivateKeyEnvelope: this.json(
+          this.crypto.encrypt(privateKey, systemKey, this.systemReadPrivateContext),
+        ),
+      },
+    });
+    return publicKey;
+  }
+
+  /** The system read public key, or null before it has been provisioned. */
+  async getSystemReadPublicKey(): Promise<string | null> {
+    const material = await this.prisma.systemKeyMaterial.findUnique({ where: { id: 1 } });
+    return material?.readPublicKey ?? null;
+  }
+
+  /** Seals a profile data key to the system read public key (no session needed). */
+  sealProfileForSystem(profileKey: Buffer, publicKey: string): Prisma.InputJsonValue {
+    const ciphertext = publicEncrypt(
+      { key: publicKey, oaepHash: 'sha256', padding: constants.RSA_PKCS1_OAEP_PADDING },
+      profileKey,
+    ).toString('base64url');
+    return this.json({ version: 1, algorithm: 'RSA-OAEP-256', ciphertext });
+  }
+
+  /** Recovers a profile data key from its system seal using the System KEK. */
+  async unsealProfileForSystem(envelope: unknown, systemKey: Buffer): Promise<Buffer> {
+    const material = await this.prisma.systemKeyMaterial.findUniqueOrThrow({ where: { id: 1 } });
+    if (!material.readPrivateKeyEnvelope) throw new Error('System read key is not provisioned');
+    const privateKey = this.crypto
+      .decrypt(material.readPrivateKeyEnvelope as never, systemKey, this.systemReadPrivateContext)
+      .toString('utf8');
+    const sealed = envelope as { version?: number; algorithm?: string; ciphertext?: string };
+    if (sealed.version !== 1 || sealed.algorithm !== 'RSA-OAEP-256' || !sealed.ciphertext)
+      throw new Error('Unsupported system key envelope');
+    return privateDecrypt(
+      { key: privateKey, oaepHash: 'sha256', padding: constants.RSA_PKCS1_OAEP_PADDING },
+      Buffer.from(sealed.ciphertext, 'base64url'),
+    );
   }
 
   async grantSystemToAdmin(

@@ -147,15 +147,24 @@ export class JournalistsService {
         },
         include: ADMIN_INCLUDE,
       });
+      let systemSeal: Prisma.InputJsonValue | undefined;
       const keyMaterial = await this.userKeys.provision(
         created.userId,
         dto.password,
         { email },
-        (key) => this.hierarchy.wrapOwnerForRecovery('user', String(created.userId), key, tx),
+        async (key) => {
+          await this.hierarchy.wrapOwnerForRecovery('user', String(created.userId), key, tx);
+          const publicKey = await this.hierarchy.getSystemReadPublicKey();
+          if (publicKey) systemSeal = this.hierarchy.sealProfileForSystem(key, publicKey);
+        },
       );
       await tx.user.update({
         where: { id: created.userId },
-        data: { ...keyMaterial, email: this.blindIndexes.email(email) },
+        data: {
+          ...keyMaterial,
+          email: this.blindIndexes.email(email),
+          ...(systemSeal ? { systemKeyEnvelope: systemSeal } : {}),
+        },
       });
       return created;
     });
@@ -533,6 +542,23 @@ export class JournalistsService {
           );
       } finally {
         editorial.fill(0);
+      }
+    }
+    // Superadmin universal read: decrypt via the system read key when no
+    // editorial grant applies (e.g. a self-registered journalist).
+    if (actor.role === 'ADMIN' && journalist.user.systemKeyEnvelope && unlock) {
+      try {
+        const systemKey = this.sessions.key(unlock, actor.sub, 'system');
+        try {
+          return await this.hierarchy.unsealProfileForSystem(
+            journalist.user.systemKeyEnvelope,
+            systemKey,
+          );
+        } finally {
+          systemKey.fill(0);
+        }
+      } catch {
+        // Fall through to the shared error below.
       }
     }
     throw new BadRequestException('Profile encryption grant and unlock are required');
