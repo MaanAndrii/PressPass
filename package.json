@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "prepare": "husky || true",
+    "prebuild": "prisma generate",
     "build": "npm run build -w @presspass/shared -w @presspass/ui && npm run build -w @presspass/api -w @presspass/web",
     "dev:api": "npm run dev -w @presspass/api",
     "dev:web": "npm run dev -w @presspass/web",
