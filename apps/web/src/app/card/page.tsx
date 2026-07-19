@@ -77,6 +77,12 @@ export default function CardPage() {
         router.replace('/login');
         return;
       }
+      // Authenticated but the short-lived encryption session is gone (app was
+      // reopened, or it expired): re-unlock instead of showing a raw error.
+      if (err instanceof ApiError && err.message === 'Encryption unlock required') {
+        router.replace('/encryption?next=/card');
+        return;
+      }
       setError(
         err instanceof ApiError
           ? err.message
