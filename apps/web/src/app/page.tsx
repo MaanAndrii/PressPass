@@ -43,13 +43,6 @@ export default function HomePage() {
             credentials for journalists.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Link
-              href={primaryAction.href}
-              className="rounded-xl bg-white px-8 py-3 text-base font-semibold text-blue-700 shadow-lg transition hover:bg-blue-50"
-            >
-              {primaryAction.label}
-            </Link>
-
       <section className="mx-auto grid w-full max-w-3xl gap-4 px-4 py-10 sm:grid-cols-3">
         <div className="rounded-2xl bg-white p-6 shadow">
           <p className="text-3xl">🪪</p>
@@ -74,8 +67,13 @@ export default function HomePage() {
             QR-код не містить персональних даних — лише захищене посилання на сторінку перевірки.
           </p>
         </div>
-      </section>
-            
+      </section>          
+            <Link
+              href={primaryAction.href}
+              className="rounded-xl bg-white px-8 py-3 text-base font-semibold text-blue-700 shadow-lg transition hover:bg-blue-50"
+            >
+              {primaryAction.label}
+            </Link>         
             {!session && (
               <Link
                 href="/register"
