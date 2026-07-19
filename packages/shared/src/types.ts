@@ -34,6 +34,8 @@ export interface AppSettings {
   googleClientId: string | null;
   /** Masked preview of the stored Google client secret, or null. */
   googleSecretPreview: string | null;
+  /** QR code validity / client refresh interval, in seconds. */
+  qrTtlSeconds: number;
 }
 
 /** GET /branding — public branding assets needed to render a card. */
@@ -77,6 +79,8 @@ export interface UpdateSettingsInput {
   googleClientId?: string;
   /** Google OAuth client secret; empty string clears it (falls back to env). */
   googleClientSecret?: string;
+  /** QR code validity in seconds (also the client refresh interval), 10–300. */
+  qrTtlSeconds?: number;
 }
 
 /** A catalogue journalist position (Ukrainian + English name). */

@@ -3,7 +3,8 @@ import { VerifyService } from './verify.service';
 describe('VerifyService short-lived projection', () => {
   const prisma: any = { card: { findUnique: jest.fn() } };
   const cache: any = { get: jest.fn() };
-  const service = new VerifyService(prisma, cache);
+  const settings: any = { nszhuLogoPath: jest.fn(() => Promise.resolve(null)) };
+  const service = new VerifyService(prisma, cache, settings);
   beforeEach(() => jest.clearAllMocks());
   it('reveals no data without a token', async () => {
     cache.get.mockReturnValue(null);

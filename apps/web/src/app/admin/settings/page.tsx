@@ -13,6 +13,7 @@ export default function AdminSettingsPage() {
   const [mailFrom, setMailFrom] = useState('');
   const [googleClientId, setGoogleClientId] = useState('');
   const [googleClientSecret, setGoogleClientSecret] = useState('');
+  const [qrTtl, setQrTtl] = useState(60);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -23,6 +24,7 @@ export default function AdminSettingsPage() {
         setSettings(s);
         setMailFrom(s.mailFrom);
         setGoogleClientId(s.googleClientId ?? '');
+        setQrTtl(s.qrTtlSeconds);
       })
       .catch((err) =>
         setError(err instanceof ApiError ? err.message : 'Не вдалося завантажити налаштування'),
@@ -44,6 +46,27 @@ export default function AdminSettingsPage() {
       const updated = await api<AppSettings>('/admin/settings', { method: 'PUT', body });
       setSettings(updated);
       setResendApiKey('');
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не вдалося зберегти');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSaveQrTtl(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setSaved(false);
+    setBusy(true);
+    try {
+      const value = Math.min(300, Math.max(10, Math.round(qrTtl) || 60));
+      const updated = await api<AppSettings>('/admin/settings', {
+        method: 'PUT',
+        body: { qrTtlSeconds: value },
+      });
+      setSettings(updated);
+      setQrTtl(updated.qrTtlSeconds);
       setSaved(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не вдалося зберегти');
@@ -230,6 +253,28 @@ export default function AdminSettingsPage() {
             </Button>
           )}
         </div>
+      </form>
+
+      <form onSubmit={handleSaveQrTtl} className="space-y-4 rounded-xl bg-white p-5 shadow">
+        <h2 className="font-semibold">QR-код посвідчення</h2>
+        <p className="text-sm text-slate-500">
+          Термін дії QR-коду в секундах. Це також інтервал його перегенерації, тож термін дії й
+          оновлення збігаються. Діапазон: 10–300 с.
+        </p>
+        <label className="flex items-center gap-3 text-sm">
+          <span className="text-slate-700">Термін дії, с</span>
+          <input
+            type="number"
+            min={10}
+            max={300}
+            value={qrTtl}
+            onChange={(e) => setQrTtl(Number(e.target.value))}
+            className="w-28 rounded-lg border border-slate-300 px-2 py-1"
+          />
+        </label>
+        <Button type="submit" disabled={busy}>
+          {busy ? 'Збереження…' : 'Зберегти'}
+        </Button>
       </form>
 
       <form onSubmit={handleSaveGoogle} className="space-y-4 rounded-xl bg-white p-5 shadow">

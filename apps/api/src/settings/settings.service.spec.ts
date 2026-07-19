@@ -9,6 +9,7 @@ describe('SettingsService encrypted storage', () => {
   };
   const files: any = { store: jest.fn(), read: jest.fn(), cleanupReplaced: jest.fn() };
   const media: any = { put: jest.fn() };
+  const qrToken: any = { ttlSeconds: 60, setTtlSeconds: jest.fn() };
   let service: SettingsService;
   const create = () =>
     new SettingsService(
@@ -18,6 +19,7 @@ describe('SettingsService encrypted storage', () => {
       payloads,
       files,
       media,
+      qrToken,
     );
   beforeEach(() => {
     jest.clearAllMocks();
