@@ -216,6 +216,16 @@ export const CARD_FLOW_CAPTIONS = {
   qrCaptionEn: 'Scan the QR code to verify this credential',
 } as const;
 
+/**
+ * Retired text bindings → the seed text used when migrating an old saved element
+ * to plain custom text (so an existing design keeps its visible caption).
+ */
+const LEGACY_TEXT_BINDINGS: Record<string, { uk: string; en: string }> = {
+  title: { uk: CARD_FLOW_CAPTIONS.titleUk, en: CARD_FLOW_CAPTIONS.titleEn },
+  subtitle: { uk: '', en: '' },
+  qrCaption: { uk: CARD_FLOW_CAPTIONS.qrCaptionUk, en: CARD_FLOW_CAPTIONS.qrCaptionEn },
+};
+
 /** The built-in default design (also the seed/fallback value). */
 export const DEFAULT_CARD_TEMPLATE: CardTemplate = {
   theme: {
@@ -409,20 +419,25 @@ function element(value: unknown, index: number): CardElement | null {
   const type = oneOf<CardElementType>(e.type, CARD_ELEMENT_TYPES, 'text');
   const id =
     typeof e.id === 'string' && e.id.length > 0 && e.id.length <= 40 ? e.id : `el-${index}`;
+  // Migrate elements saved against the retired title/subtitle/qrCaption bindings
+  // into plain custom text, seeding the built-in captions so an existing design
+  // keeps its visible header/footer instead of rendering blank.
+  const rawBinding = typeof e.binding === 'string' && e.binding.length <= 40 ? e.binding : 'custom';
+  const legacy = LEGACY_TEXT_BINDINGS[rawBinding];
   const out: CardElement = {
     id,
     type,
-    binding: typeof e.binding === 'string' && e.binding.length <= 40 ? e.binding : 'custom',
+    binding: legacy ? 'custom' : rawBinding,
     x: Math.round(num(e.x, 0, 0, 2000)),
     y: Math.round(num(e.y, 0, 0, 2000)),
     width: Math.round(num(e.width, 80, 4, 2000)),
     height: Math.round(num(e.height, 20, 4, 2000)),
   };
-  if (e.content !== undefined) {
-    out.content = text(e.content, '', 200);
+  if (e.content !== undefined || legacy) {
+    out.content = text(e.content, legacy?.uk ?? '', 200);
   }
-  if (e.contentEn !== undefined) {
-    out.contentEn = text(e.contentEn, '', 200);
+  if (e.contentEn !== undefined || legacy) {
+    out.contentEn = text(e.contentEn, legacy?.en ?? '', 200);
   }
   if (e.src !== undefined) {
     out.src =
