@@ -133,7 +133,20 @@ async function main(): Promise<void> {
   const adminKey = await hierarchy.unlockAdmin(admin.id, adminPassphrase);
   const unlocked = await hierarchy.unlockEditorials(admin.id, adminKey);
   let systemKey = unlocked.get('system');
-  if (!systemKey) systemKey = await hierarchy.provisionSystemForFirstAdmin(admin.id, adminKey);
+  if (!systemKey) {
+    // A system key already in the database but not linked to this administrator
+    // means the DB predates the current key material (e.g. a re-install that
+    // regenerated secrets over a stale database). Provisioning would create a
+    // second, irreconcilable system key — fail with an actionable message.
+    if (await prisma.systemKeyMaterial.findUnique({ where: { id: 1 } }))
+      throw new Error(
+        'System key material exists but is not granted to this administrator. The ' +
+          'database predates the current encryption secrets (likely a re-install over a ' +
+          'stale database). Restore the original .env, or reset the database ' +
+          '(deploy/install.sh --reset-db) to start fresh.',
+      );
+    systemKey = await hierarchy.provisionSystemForFirstAdmin(admin.id, adminKey);
+  }
   await recovery('system', '1', systemKey, admin.id);
 
   for (const user of await prisma.user.findMany()) {

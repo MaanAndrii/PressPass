@@ -31,7 +31,14 @@ env_value() {
   sed -n "s/^$1=//p" "$APP_DIR/.env" | tail -n1
 }
 ASSUME_YES=0
-[[ "${1:-}" == "--yes" || "${1:-}" == "-y" ]] && ASSUME_YES=1
+# --reset-db дозволяє свідомо скинути наявну (несумісну) базу перед встановленням.
+RESET_DB=0
+for __arg in "$@"; do
+  case "$__arg" in
+    --yes | -y) ASSUME_YES=1 ;;
+    --reset-db) RESET_DB=1 ;;
+  esac
+done
 
 BOLD=$'\033[1m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RED=$'\033[31m'; RESET=$'\033[0m'
 step() { echo; echo "${BOLD}${GREEN}==>${RESET}${BOLD} $*${RESET}"; }
@@ -183,6 +190,35 @@ END
 SQL
 su - postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='presspass'\"" | grep -q 1 \
   || su - postgres -c "createdb -O presspass presspass"
+
+# На вимогу скидаємо наявну базу (свідома відмова від старих даних).
+if [[ $RESET_DB -eq 1 ]]; then
+  step "Скидання бази presspass (--reset-db)"
+  warn "Усі наявні дані presspass буде безповоротно видалено."
+  su - postgres -c "psql -q -c 'DROP DATABASE IF EXISTS presspass'"
+  su - postgres -c "createdb -O presspass presspass"
+fi
+
+# Захист від «несумісного перевстановлення»: якщо .env із секретами відсутній,
+# інсталятор генерує НОВІ ключі шифрування. Але якщо база вже містить дані від
+# попереднього встановлення, вони зашифровані СТАРИМИ ключами — узгодити їх
+# неможливо, і security:backfill впаде глибоко всередині. Зупиняємось завчасно з
+# чіткою інструкцією, а не з криптографічною помилкою.
+DB_ROWS="$(su - postgres -c "psql -tAq presspass" <<'PSQL' 2>/dev/null | tail -n1
+SELECT CASE WHEN to_regclass('public."User"') IS NULL THEN 0
+            ELSE (SELECT count(*) FROM "User") END;
+PSQL
+)"
+if [[ $EXISTING_INSTALL -eq 0 && "${DB_ROWS:-0}" -gt 0 ]]; then
+  echo
+  die "База presspass уже містить дані (${DB_ROWS} користувач(ів)), але файл .env із
+       секретами шифрування відсутній — тобто буде згенеровано НОВІ ключі, несумісні
+       зі старими даними. Оберіть одне:
+         • відновіть попередній $APP_DIR/.env (зі старими ADMIN_ENCRYPTION_PASSPHRASE,
+           DATA_KEY_SECRET, LOOKUP_KEY) і запустіть інсталятор знову; АБО
+         • свідомо скиньте стару (невідновну) базу: перезапустіть з прапорцем --reset-db
+           (bash deploy/install.sh --reset-db)."
+fi
 
 # ─── 3. Конфігурація .env ────────────────────────────────────────────────────
 step "Генерація $APP_DIR/.env"
