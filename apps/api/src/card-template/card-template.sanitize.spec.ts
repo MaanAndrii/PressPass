@@ -207,7 +207,7 @@ describe('sanitizeCardTemplate', () => {
     const a = t.elements[0]!;
     const b = t.elements[1]!;
     expect(a.id).toBe('a');
-    expect(a.x).toBe(0); // clamped ≥ 0
+    expect(a.x).toBe(-50); // negative kept (rotated top-left may sit off-canvas)
     expect(a.y).toBe(11); // rounded
     expect(a.width).toBe(2000); // clamped ≤ 2000
     expect(a.fontSize).toBe(60); // clamped ≤ 60

@@ -428,8 +428,10 @@ function element(value: unknown, index: number): CardElement | null {
     id,
     type,
     binding: legacy ? 'custom' : rawBinding,
-    x: Math.round(num(e.x, 0, 0, 2000)),
-    y: Math.round(num(e.y, 0, 0, 2000)),
+    // x/y are the UNROTATED top-left; for a 90°/270° element that point sits
+    // off the visible box, so it may legitimately be negative — do not clamp to 0.
+    x: Math.round(num(e.x, 0, -2000, 2000)),
+    y: Math.round(num(e.y, 0, -2000, 2000)),
     width: Math.round(num(e.width, 80, 4, 2000)),
     height: Math.round(num(e.height, 20, 4, 2000)),
   };
