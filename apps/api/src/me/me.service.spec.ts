@@ -105,6 +105,57 @@ describe('MeService owner encrypted profile', () => {
       }),
     );
   });
+  it('preserves the photo and editorial fields when saving the questionnaire', async () => {
+    // Photo/position live inside encryptedData; the scrubbed columns read null.
+    prisma.journalist.findUnique.mockResolvedValue({
+      id: 3,
+      userId: 7,
+      photoPath: null,
+      position: '',
+      organization: '',
+      nszhuMember: false,
+      encryptedData: { ciphertext: 'opaque' },
+    });
+    payloads.decrypt.mockReturnValue({
+      photoPath: '/media/photo-id',
+      position: 'Кореспондент',
+      organization: 'Медіа',
+    });
+    prisma.journalist.update.mockResolvedValue({});
+    prisma.user.findUnique.mockResolvedValue({
+      id: 7,
+      email: 'opaque',
+      role: 'JOURNALIST',
+      emailVerifiedAt: new Date(),
+      editorialId: null,
+      encryptedData: null,
+      journalist: { id: 3, publicId: 'JR-X', encryptedData: null, memberships: [] },
+    });
+    await service.updateProfile(
+      7,
+      {
+        fullName: 'Іван Петренко',
+        fullNameEn: '',
+        birthDate: '1990-01-01',
+        passportData: 'AA123456',
+        taxNumber: '1234567890',
+        phone: '+380501112233',
+      },
+      'unlock',
+    );
+    expect(payloads.encrypt).toHaveBeenCalledWith(
+      'journalist',
+      3,
+      'user:7',
+      expect.objectContaining({
+        fullName: 'Іван Петренко',
+        photoPath: '/media/photo-id',
+        position: 'Кореспондент',
+        organization: 'Медіа',
+      }),
+      expect.any(Buffer),
+    );
+  });
   it('degrades /me for an admin without a profile key instead of throwing', async () => {
     // An admin signed in via Google has no password-derived 'profile' key, so
     // the email envelope cannot be opened — /me must still return, not 400.
