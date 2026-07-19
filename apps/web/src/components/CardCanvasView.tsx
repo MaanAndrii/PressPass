@@ -27,20 +27,11 @@ function labelFor(binding: string, lang: CardLang): string {
  * element's literal `content`; `date`/`mediaId` prepend a localised label
  * (overridable via `content`). Returns '' when the bound value is empty.
  */
-function resolveText(
-  el: CardElement,
-  template: CardTemplate,
-  data: CardViewData,
-  lang: CardLang,
-): string {
+function resolveText(el: CardElement, data: CardViewData, lang: CardLang): string {
   const en = lang === 'en';
   const pick = (uk: string, alt?: string) => (en ? alt || uk : uk);
   const binding = el.type === 'date' ? 'expireDate' : el.binding;
   switch (binding) {
-    case 'title':
-      return en ? template.theme.titleTextEn : template.theme.titleText;
-    case 'subtitle':
-      return en ? template.theme.subtitleTextEn : template.theme.subtitleText;
     case 'fullName':
       return pick(data.fullName, data.fullNameEn);
     case 'position':
@@ -49,8 +40,6 @@ function resolveText(
       return pick(data.organization, data.organizationEn);
     case 'cardNumber':
       return data.cardNumber;
-    case 'qrCaption':
-      return en ? template.theme.qrCaptionEn : template.qrCaption;
     case 'mediaId': {
       if (!data.mediaId) {
         return '';
@@ -178,7 +167,7 @@ function ElementView({
   }
 
   // text / date
-  const value = resolveText(el, template, data, lang);
+  const value = resolveText(el, data, lang);
   if (!value) {
     if (!demo) {
       return null;

@@ -19,13 +19,24 @@ describe('sanitizeCardTemplate', () => {
 
   it('strips HTML/script from text fields by treating them as plain data', () => {
     const result = sanitizeCardTemplate({
-      theme: { titleText: '<script>alert(1)</script>' },
-      qrCaption: '<img src=x onerror=alert(1)>',
+      elements: [
+        {
+          id: 'x',
+          type: 'text',
+          binding: 'custom',
+          content: '<script>alert(1)</script>',
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+        },
+      ],
+      fields: [{ key: 'fullName', label: '<img src=x onerror=alert(1)>', visible: true }],
     });
-    // The value is preserved as a plain string (React escapes it on render);
-    // it is never interpreted as markup, and length is bounded.
-    expect(typeof result.theme.titleText).toBe('string');
-    expect(result.theme.titleText).not.toContain('undefined');
+    // Values are preserved as plain strings (React escapes them on render); they
+    // are never interpreted as markup, and length is bounded.
+    expect(typeof result.elements[0]!.content).toBe('string');
+    expect(typeof result.fields.find((f) => f.key === 'fullName')!.label).toBe('string');
   });
 
   it('accepts only a relative logo path or null', () => {
@@ -103,7 +114,6 @@ describe('sanitizeCardTemplate', () => {
         cardNumberFontSize: 18,
         fontFamily: 'serif',
         lineHeight: 1.8,
-        titleTextEn: 'PRESS',
       },
       // cardNumber/issueDate/expireDate are no longer inline fields.
       fields: [{ key: 'cardNumber', label: 'x', visible: true }],
@@ -115,7 +125,6 @@ describe('sanitizeCardTemplate', () => {
     expect(theme.cardNumberFontSize).toBe(18);
     expect(theme.fontFamily).toBe('serif');
     expect(theme.lineHeight).toBe(1.8);
-    expect(theme.titleTextEn).toBe('PRESS');
 
     const fields = sanitizeCardTemplate({
       fields: [{ key: 'cardNumber', label: 'x', visible: true }],
@@ -160,9 +169,9 @@ describe('sanitizeCardTemplate', () => {
     expect(zones.bottom.lineHeight).toBe(DEFAULT_CARD_TEMPLATE.theme.zones.bottom.lineHeight);
   });
 
-  it('defaults to flow layout with the built-in elements', () => {
+  it('defaults to absolute layout with the built-in elements', () => {
     const t = sanitizeCardTemplate({});
-    expect(t.layoutMode).toBe('flow');
+    expect(t.layoutMode).toBe('absolute');
     expect(t.gridSize).toBe(10);
     expect(t.elements).toEqual(DEFAULT_CARD_TEMPLATE.elements);
   });

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { DEFAULT_CARD_TEMPLATE, sanitizeCardTemplate, type CardTemplate } from '@presspass/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -13,8 +13,33 @@ const GLOBAL_ID = 1;
  * once lost on restart, silently fell back to the default design).
  */
 @Injectable()
-export class CardTemplateService {
+export class CardTemplateService implements OnModuleInit {
+  private readonly logger = new Logger(CardTemplateService.name);
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * On boot, re-save any stored template whose sanitized form differs from what
+   * is on disk. This strips fields the schema no longer defines (the retired
+   * title/subtitle/qrCaption theme variables) so the database stays clean
+   * without a manual migration. Idempotent and never fatal to startup.
+   */
+  async onModuleInit(): Promise<void> {
+    try {
+      const rows = await this.prisma.cardTemplate.findMany();
+      for (const row of rows) {
+        if (!row.data || typeof row.data !== 'object') continue;
+        const cleaned = sanitizeCardTemplate(row.data);
+        if (JSON.stringify(cleaned) === JSON.stringify(row.data)) continue;
+        await this.prisma.cardTemplate.update({
+          where: { id: row.id },
+          data: { data: cleaned as unknown as Prisma.InputJsonValue },
+        });
+        this.logger.log(`Normalized card template #${row.id} (removed retired fields)`);
+      }
+    } catch (error) {
+      this.logger.warn(`Card template normalization skipped: ${(error as Error).message}`);
+    }
+  }
 
   async get(editorialId?: number | null): Promise<CardTemplate> {
     if (editorialId != null) {

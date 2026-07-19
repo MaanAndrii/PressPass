@@ -61,10 +61,6 @@ export const FONT_FAMILY_STACKS: Record<FontFamily, string> = {
 };
 
 export interface CardTheme {
-  /** Header caption, e.g. "PRESS" or "ПОСВІДЧЕННЯ ЖУРНАЛІСТА". */
-  titleText: string;
-  /** Optional second header line (subtitle). */
-  subtitleText: string;
   titleBgColor: string;
   titleColor: string;
   accentColor: string;
@@ -115,10 +111,6 @@ export interface CardTheme {
    * bottom (card number + expiry). Each positions its content independently.
    */
   zones: Record<ZoneName, CardZone>;
-  // ── English side (flip) ───────────────────────────────────────────────────
-  titleTextEn: string;
-  subtitleTextEn: string;
-  qrCaptionEn: string;
 }
 
 // ── Free-positioned layout (Level 3: drag-and-drop designer) ────────────────
@@ -145,15 +137,12 @@ export type CardElementType = (typeof CARD_ELEMENT_TYPES)[number];
  * `date` elements always read `expireDate` regardless of binding.
  */
 export const TEXT_BINDINGS = [
-  'title',
-  'subtitle',
   'fullName',
   'position',
   'organization',
   'mediaId',
   'cardNumber',
   'expireDate',
-  'qrCaption',
   'custom',
 ] as const;
 export type TextBinding = (typeof TEXT_BINDINGS)[number];
@@ -206,9 +195,7 @@ export interface CardElement {
 export interface CardTemplate {
   theme: CardTheme;
   fields: CardThemeField[];
-  /** Footer caption (Ukrainian side). */
-  qrCaption: string;
-  /** Which layout the card uses (default `flow`). */
+  /** Which layout the card uses (default `absolute`). */
   layoutMode: CardLayoutMode;
   /** Snap grid step in px for the designer (2–50). */
   gridSize: number;
@@ -216,11 +203,22 @@ export interface CardTemplate {
   elements: CardElement[];
 }
 
+/**
+ * Built-in captions for the legacy `flow` layout's header and QR footer. In the
+ * `absolute` designer these are just ordinary custom-text elements the admin
+ * edits directly, so there is no stored/editable "title"/"subtitle"/"qrCaption"
+ * variable any more — the flow renderer falls back to these constants.
+ */
+export const CARD_FLOW_CAPTIONS = {
+  titleUk: 'ПОСВІДЧЕННЯ ЖУРНАЛІСТА',
+  titleEn: 'PRESS CARD',
+  qrCaptionUk: 'Скануйте QR-код для перевірки дійсності посвідчення',
+  qrCaptionEn: 'Scan the QR code to verify this credential',
+} as const;
+
 /** The built-in default design (also the seed/fallback value). */
 export const DEFAULT_CARD_TEMPLATE: CardTemplate = {
   theme: {
-    titleText: 'ПОСВІДЧЕННЯ ЖУРНАЛІСТА',
-    subtitleText: 'PressPass Platform',
     titleBgColor: '#1d4ed8',
     titleColor: '#ffffff',
     accentColor: '#1d4ed8',
@@ -249,17 +247,13 @@ export const DEFAULT_CARD_TEMPLATE: CardTemplate = {
       middle: { hAlign: 'center', vAlign: 'center', lineHeight: 1.3 },
       bottom: { hAlign: 'left', vAlign: 'center', lineHeight: 1.4 },
     },
-    titleTextEn: 'PRESS CARD',
-    subtitleTextEn: 'PressPass Platform',
-    qrCaptionEn: 'Scan the QR code to verify this credential',
   },
   fields: [
     { key: 'fullName', label: 'ПІБ', visible: true },
     { key: 'position', label: 'Посада', visible: true },
     { key: 'organization', label: 'Редакція', visible: true },
   ],
-  qrCaption: 'Скануйте QR-код для перевірки дійсності посвідчення',
-  layoutMode: 'flow',
+  layoutMode: 'absolute',
   gridSize: 10,
   // Starting point for the free-canvas designer: reproduces the card's usual
   // structure so switching to `absolute` looks familiar, then can be rearranged.
@@ -267,7 +261,9 @@ export const DEFAULT_CARD_TEMPLATE: CardTemplate = {
     {
       id: 'title',
       type: 'text',
-      binding: 'title',
+      binding: 'custom',
+      content: 'ПОСВІДЧЕННЯ ЖУРНАЛІСТА',
+      contentEn: 'PRESS CARD',
       x: 0,
       y: 0,
       width: 360,
@@ -354,7 +350,9 @@ export const DEFAULT_CARD_TEMPLATE: CardTemplate = {
     {
       id: 'qrCaption',
       type: 'text',
-      binding: 'qrCaption',
+      binding: 'custom',
+      content: 'Скануйте QR-код для перевірки дійсності посвідчення',
+      contentEn: 'Scan the QR code to verify this credential',
       x: 20,
       y: 534,
       width: 320,
@@ -484,8 +482,6 @@ export function sanitizeCardTemplate(input: unknown): CardTemplate {
         : d.theme.logoSrc;
 
   const theme: CardTheme = {
-    titleText: text(t.titleText, d.theme.titleText, 60),
-    subtitleText: text(t.subtitleText, d.theme.subtitleText, 60),
     titleBgColor: color(t.titleBgColor, d.theme.titleBgColor),
     titleColor: color(t.titleColor, d.theme.titleColor),
     accentColor: color(t.accentColor, d.theme.accentColor),
@@ -518,9 +514,6 @@ export function sanitizeCardTemplate(input: unknown): CardTemplate {
       middle: zone(t.zones?.middle, d.theme.zones.middle),
       bottom: zone(t.zones?.bottom, d.theme.zones.bottom),
     },
-    titleTextEn: text(t.titleTextEn, d.theme.titleTextEn, 60),
-    subtitleTextEn: text(t.subtitleTextEn, d.theme.subtitleTextEn, 60),
-    qrCaptionEn: text(t.qrCaptionEn, d.theme.qrCaptionEn, 120),
   };
 
   // Preserve admin order/labels/visibility, but only for known keys, deduped,
@@ -559,7 +552,6 @@ export function sanitizeCardTemplate(input: unknown): CardTemplate {
   return {
     theme,
     fields,
-    qrCaption: text(raw.qrCaption, d.qrCaption, 120),
     layoutMode: oneOf<CardLayoutMode>(raw.layoutMode, CARD_LAYOUT_MODES, d.layoutMode),
     gridSize: Math.round(num(raw.gridSize, d.gridSize, 2, 50)),
     elements,

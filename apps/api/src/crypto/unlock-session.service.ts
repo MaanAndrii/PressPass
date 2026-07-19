@@ -33,6 +33,20 @@ export class UnlockSessionService implements OnModuleDestroy {
     return Buffer.from(key);
   }
 
+  /**
+   * Adds (or replaces) a key in an existing session. Used when a new owner key
+   * is provisioned mid-session — e.g. a Superadmin creating an editorial — so the
+   * same unlock can immediately read/write it without a re-login. A private copy
+   * is stored, so the caller may wipe its own buffer. No-op if the session is
+   * gone (the next unlock rebuilds the full set from the database).
+   */
+  put(token: string, userId: number, name: string, key: Buffer): void {
+    this.sweep();
+    const entry = this.sessions.get(token);
+    if (!entry || entry.userId !== userId) return;
+    entry.keys.set(name, Buffer.from(key));
+  }
+
   sharedKey(name: string): Buffer {
     this.sweep();
     for (const entry of this.sessions.values()) {

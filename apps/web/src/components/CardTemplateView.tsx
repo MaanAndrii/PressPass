@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 
 import {
+  CARD_FLOW_CAPTIONS,
   FONT_FAMILY_STACKS,
   type CardFieldKey,
   type CardLang,
@@ -105,9 +106,8 @@ export function CardTemplateView({
   const photoHeight = Math.round(theme.photoWidth * (4 / 3));
   const scaled = (px: number) => `${Math.round(px * theme.fontScale)}px`;
 
-  const title = lang === 'en' ? theme.titleTextEn : theme.titleText;
-  const subtitle = lang === 'en' ? theme.subtitleTextEn : theme.subtitleText;
-  const qrCaption = lang === 'en' ? theme.qrCaptionEn : template.qrCaption;
+  const title = lang === 'en' ? CARD_FLOW_CAPTIONS.titleEn : CARD_FLOW_CAPTIONS.titleUk;
+  const qrCaption = lang === 'en' ? CARD_FLOW_CAPTIONS.qrCaptionEn : CARD_FLOW_CAPTIONS.qrCaptionUk;
   const expireLabel = lang === 'en' ? 'Valid until' : 'Дійсне до';
 
   const field = (key: CardFieldKey) => template.fields.find((f) => f.key === key);
@@ -185,11 +185,6 @@ export function CardTemplateView({
           <h2 className="font-bold leading-tight" style={{ fontSize: scaled(theme.titleFontSize) }}>
             {title}
           </h2>
-          {subtitle && (
-            <p className="opacity-80" style={{ fontSize: scaled(11) }}>
-              {subtitle}
-            </p>
-          )}
         </div>
         {theme.headerAlign !== 'center' && data.status && <StatusBadge status={data.status} />}
       </header>
