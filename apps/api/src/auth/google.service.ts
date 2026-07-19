@@ -5,6 +5,7 @@ import type { Role } from '@presspass/shared';
 
 import { generateJournalistPublicId } from '../common/public-id';
 import { BlindIndexService } from '../crypto/blind-index.service';
+import { KeyHierarchyService } from '../crypto/key-hierarchy.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import type { JwtPayload } from './auth.types';
@@ -34,6 +35,7 @@ export class GoogleAuthService {
     private readonly jwtService: JwtService,
     private readonly blindIndexes: BlindIndexService,
     private readonly settings: SettingsService,
+    private readonly hierarchy: KeyHierarchyService,
   ) {}
 
   get enabled(): boolean {
@@ -106,6 +108,27 @@ export class GoogleAuthService {
     }
 
     const user = await this.findOrCreateUser(payload);
+    // A Superadmin has no password-derived key when signing in via Google, so
+    // seal their verified email to the system read public key (no unlock needed
+    // to write it) — /me then shows it via the system key they hold once
+    // unlocked. Best-effort: never block sign-in on this.
+    if (user.role === 'ADMIN' && !user.adminEmailEnvelope) {
+      try {
+        const publicKey = await this.hierarchy.getSystemReadPublicKey();
+        if (publicKey)
+          await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+              adminEmailEnvelope: this.hierarchy.sealProfileForSystem(
+                Buffer.from(this.blindIndexes.normalizeEmail(payload.email!), 'utf8'),
+                publicKey,
+              ),
+            },
+          });
+      } catch (error) {
+        this.logger.warn(`Admin email seal skipped: ${(error as Error).message}`);
+      }
+    }
     const jwt: JwtPayload = {
       sub: user.id,
       email: this.blindIndexes.normalizeEmail(payload.email),

@@ -8,3 +8,4 @@ docs/openapi.json
 package-lock.json
 *.png
 *.ico
+.claude

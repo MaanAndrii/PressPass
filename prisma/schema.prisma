@@ -47,6 +47,10 @@ model User {
   // Superadmin universal online read access. Populated at profile creation and
   // lazily on the owner's next login for pre-existing accounts.
   systemKeyEnvelope   Json?                   @map("system_key_envelope")
+  // An administrator's own email sealed (RSA-OAEP) to the system read public
+  // key, so a Superadmin can display it even when signed in via Google (there
+  // is no password to derive the profile key that encrypts `encryptedData`).
+  adminEmailEnvelope  Json?                   @map("admin_email_envelope")
   tokenVersion        Int                     @default(0) @map("token_version")
   role                Role                    @default(JOURNALIST)
   emailVerifiedAt     DateTime?               @map("email_verified_at")

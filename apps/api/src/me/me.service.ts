@@ -146,7 +146,10 @@ export class MeService {
         key = this.profileKey(unlockToken, userId);
       } catch (error) {
         if (!isAdmin) throw error;
-        email = '';
+        // A Superadmin signed in via Google has no 'profile' key, but their email
+        // is sealed to the system read key — recover it with the system key they
+        // hold once unlocked. Falls back to blank when unavailable.
+        email = await this.adminEmailFromSystemSeal(user, userId, unlockToken);
       }
       if (key && user.encryptedData)
         email = this.userKeys.decryptUserData<{ email: string }>(
@@ -201,23 +204,32 @@ export class MeService {
     await this.assertNotManaged(journalist.id);
     const key = this.profileKey(unlockToken, userId);
     try {
+      // Merge onto the DECRYPTED current record, not the scrubbed plaintext
+      // columns (photoPath/position/organization live only inside encryptedData
+      // and read back as null/'' from the row). Reading the columns here would
+      // wipe a photo uploaded just before saving the questionnaire.
+      const current = journalist.encryptedData
+        ? this.payloads.decrypt<Record<string, unknown>>(
+            'journalist',
+            journalist.id,
+            `user:${userId}`,
+            journalist.encryptedData,
+            key,
+          )
+        : {};
       const encryptedData = this.payloads.encrypt(
         'journalist',
         journalist.id,
         `user:${userId}`,
         {
+          ...current,
           fullName: dto.fullName,
           fullNameEn: dto.fullNameEn ?? '',
-          position: journalist.position,
-          positionEn: journalist.positionEn,
-          organization: journalist.organization,
-          organizationEn: journalist.organizationEn,
-          photoPath: journalist.photoPath,
           birthDate: dto.birthDate,
           passportData: dto.passportData,
           taxNumber: dto.taxNumber,
           phone: dto.phone,
-          nszhuMember: dto.nszhuMember ?? journalist.nszhuMember,
+          nszhuMember: dto.nszhuMember ?? current.nszhuMember ?? false,
         },
         key,
       );
@@ -593,6 +605,30 @@ export class MeService {
       return this.unlockSessions.key(token, userId, 'profile');
     } catch {
       throw new BadRequestException('Encryption unlock required');
+    }
+  }
+
+  /**
+   * Recovers a Superadmin's own email from its system-read seal using the system
+   * key held in the unlock session. Returns '' when the seal or key is absent
+   * (e.g. an editorial admin, who holds no system key), never throwing.
+   */
+  private async adminEmailFromSystemSeal(
+    user: { adminEmailEnvelope: unknown },
+    userId: number,
+    token?: string,
+  ): Promise<string> {
+    if (!user.adminEmailEnvelope || !token) return '';
+    let systemKey: Buffer | undefined;
+    try {
+      systemKey = this.unlockSessions.key(token, userId, 'system');
+      return (await this.hierarchy.unsealProfileForSystem(user.adminEmailEnvelope, systemKey))
+        .toString('utf8')
+        .trim();
+    } catch {
+      return '';
+    } finally {
+      systemKey?.fill(0);
     }
   }
 }
