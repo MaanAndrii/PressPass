@@ -9,9 +9,11 @@ describe('JournalistsService encrypted profile creation', () => {
     editorialDataKeyGrant: { upsert: jest.fn() },
   };
   const keys: any = {
-    provision: jest.fn(() =>
-      Promise.resolve({ passwordKdf: {}, dataKeyEnvelope: {}, encryptedData: {} }),
-    ),
+    provision: jest.fn(async (_userId: number, _password: string, _data: unknown, cb?: any) => {
+      // Invoke the callback with a DEK so create() can capture the profile key.
+      if (cb) await cb(Buffer.alloc(32, 2));
+      return { passwordKdf: {}, dataKeyEnvelope: {}, encryptedData: {} };
+    }),
     unlock: jest.fn(() => Promise.resolve(Buffer.alloc(32, 2))),
     decryptUserData: jest.fn(() => ({ email: 'owner@example.com' })),
   };
@@ -37,7 +39,12 @@ describe('JournalistsService encrypted profile creation', () => {
       nszhuMember: false,
     })),
   };
-  const hierarchy: any = { wrapProfileForEditorial: jest.fn(() => ({ wrapped: 'profile' })) };
+  const hierarchy: any = {
+    wrapProfileForEditorial: jest.fn(() => ({ wrapped: 'profile' })),
+    wrapOwnerForRecovery: jest.fn(() => Promise.resolve()),
+    getSystemReadPublicKey: jest.fn(() => Promise.resolve(null)),
+    sealProfileForSystem: jest.fn(() => ({ sealed: true })),
+  };
   const files: any = {};
   const media: any = {};
   const service = new JournalistsService(

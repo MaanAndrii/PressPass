@@ -6,6 +6,7 @@ import { UnlockSessionService } from '../crypto/unlock-session.service';
 import { DomainPayloadService } from '../crypto/domain-payload.service';
 import { EncryptedFileService } from '../crypto/encrypted-file.service';
 import { PublicMediaCacheService } from '../crypto/public-media-cache.service';
+import { QrTokenService, QR_TTL_MIN, QR_TTL_MAX } from '../qr/qr-token.service';
 const SINGLETON_ID = 1;
 interface SecretSettings {
   resendApiKey: string | null;
@@ -24,6 +25,7 @@ export class SettingsService {
     private readonly payloads: DomainPayloadService,
     private readonly files: EncryptedFileService,
     private readonly publicMedia: PublicMediaCacheService,
+    private readonly qrToken: QrTokenService,
   ) {}
   async resendApiKey(): Promise<string | null> {
     return this.runtime?.resendApiKey || this.config.get<string>('RESEND_API_KEY') || null;
@@ -35,8 +37,17 @@ export class SettingsService {
       'PressPass <onboarding@resend.dev>'
     );
   }
+  // The NSZHU logo is public (printed on credentials, shown on /verify), so it is
+  // served from the plaintext data-URI column — durable across restarts and
+  // readable without an unlock, unlike the volatile encrypted projection.
   async nszhuLogoPath(): Promise<string | null> {
-    return this.runtime?.nszhuLogoPath ?? null;
+    const row = await this.prisma.appSetting.findUnique({ where: { id: SINGLETON_ID } });
+    return row?.nszhuLogoData ?? null;
+  }
+
+  /** Configured QR validity in seconds (also the client refresh interval). */
+  async qrTtlSeconds(): Promise<number> {
+    return this.qrToken.ttlSeconds;
   }
 
   // Google OAuth secrets: served from the in-memory runtime cache (warmed when an
@@ -66,6 +77,7 @@ export class SettingsService {
       googleConfigured: this.googleEnabled(),
       googleClientId: this.googleClientId() || null,
       googleSecretPreview: googleSecret ? mask(googleSecret) : null,
+      qrTtlSeconds: this.qrToken.ttlSeconds,
     };
   }
   async update(input: UpdateSettingsInput, userId: number, token?: string): Promise<AppSettings> {
@@ -89,6 +101,17 @@ export class SettingsService {
       this.runtime = next;
     } finally {
       key.fill(0);
+    }
+    // QR TTL is a public, non-secret integer — store it plaintext and apply it
+    // to the live cache immediately so validity/refresh update without a restart.
+    if (input.qrTtlSeconds !== undefined) {
+      const ttl = Math.min(QR_TTL_MAX, Math.max(QR_TTL_MIN, Math.round(input.qrTtlSeconds)));
+      await this.prisma.appSetting.upsert({
+        where: { id: SINGLETON_ID },
+        update: { qrTtlSeconds: ttl },
+        create: { id: SINGLETON_ID, qrTtlSeconds: ttl },
+      });
+      this.qrToken.setTtlSeconds(ttl);
     }
     return this.getPublic();
   }
@@ -116,6 +139,15 @@ export class SettingsService {
       const next = { ...current, nszhuLogoPath: path };
       await this.save(next, key);
       this.runtime = await this.project(next, key);
+      // Also store a public, plaintext data URI so the logo renders on the card
+      // and the public /verify page without a key and across restarts.
+      const dataUri =
+        bytes && mimeType ? `data:${mimeType};base64,${bytes.toString('base64')}` : null;
+      await this.prisma.appSetting.upsert({
+        where: { id: SINGLETON_ID },
+        update: { nszhuLogoData: dataUri },
+        create: { id: SINGLETON_ID, nszhuLogoData: dataUri },
+      });
       if (path)
         await this.files.cleanupReplaced('system', '1', 'nszhu-logo', path.slice('/media/'.length));
     } finally {

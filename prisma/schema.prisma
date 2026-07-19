@@ -178,6 +178,13 @@ model AppSetting {
   mailFrom      String?  @map("mail_from")
   // Uploaded NSZHU logo path, shown on cards of union members.
   nszhuLogoPath String?  @map("nszhu_logo_path")
+  // The NSZHU logo as a public base64 data URI. It is printed on credentials and
+  // shown on the public /verify page, so it is stored in the clear (like the card
+  // design) and served without a key — unlike the volatile encrypted copy.
+  nszhuLogoData String?  @map("nszhu_logo_data")
+  // How long a card QR code stays valid, in seconds (also the client's refresh
+  // interval, so validity and regeneration coincide). NULL → env/default.
+  qrTtlSeconds  Int?     @map("qr_ttl_seconds")
   encryptedData Json?    @map("encrypted_data")
   updatedAt     DateTime @updatedAt @map("updated_at")
 

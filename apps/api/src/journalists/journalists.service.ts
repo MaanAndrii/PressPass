@@ -124,6 +124,7 @@ export class JournalistsService {
     }
 
     const passwordHash = await argon2.hash(dto.password);
+    let capturedProfileKey: Buffer | undefined;
     const journalist = await this.prisma.$transaction(async (tx) => {
       const created = await tx.journalist.create({
         data: {
@@ -158,6 +159,10 @@ export class JournalistsService {
         dto.password,
         { email },
         async (key) => {
+          // Capture the freshly-provisioned profile DEK here: `created` was read
+          // before this update, so its user key envelopes are still null and a
+          // re-unlock would fail (and 500 after the row already committed).
+          capturedProfileKey = Buffer.from(key);
           await this.hierarchy.wrapOwnerForRecovery('user', String(created.userId), key, tx);
           const publicKey = await this.hierarchy.getSystemReadPublicKey();
           if (publicKey) systemSeal = this.hierarchy.sealProfileForSystem(key, publicKey);
@@ -173,12 +178,8 @@ export class JournalistsService {
       });
       return created;
     });
-    const profileKey = await this.userKeys.unlock(
-      journalist.userId,
-      dto.password,
-      journalist.user.passwordKdf,
-      journalist.user.dataKeyEnvelope,
-    );
+    if (!capturedProfileKey) throw new Error('Profile key was not provisioned');
+    const profileKey = capturedProfileKey;
     try {
       const encryptedData = this.payloads.encrypt(
         'journalist',

@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 export class UpdateSettingsDto {
   @ApiPropertyOptional({
@@ -33,4 +33,14 @@ export class UpdateSettingsDto {
   @IsString()
   @MaxLength(300)
   googleClientSecret?: string;
+
+  @ApiPropertyOptional({
+    example: 60,
+    description: 'Термін дії QR-коду в секундах (також інтервал оновлення), 10–300',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(10)
+  @Max(300)
+  qrTtlSeconds?: number;
 }

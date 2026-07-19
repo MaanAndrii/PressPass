@@ -131,33 +131,49 @@ export default function CardPage() {
   }, [card?.id, editorialId]);
 
   const cardId = card?.id;
-  const refreshQr = useCallback(() => {
+  // Returns the QR's validity in seconds so the caller can align the next
+  // refresh with expiry (regeneration and validity coincide).
+  const refreshQr = useCallback(async (): Promise<number> => {
     if (!cardId) {
-      return;
+      return 30;
     }
-    api<CardQr>(`/card/qr?cardId=${cardId}`)
-      .then((fresh) => {
-        setQr(fresh);
-        setQrStale(false);
-      })
-      .catch(() => setQrStale(true));
+    try {
+      const fresh = await api<CardQr>(`/card/qr?cardId=${cardId}`);
+      setQr(fresh);
+      setQrStale(false);
+      return fresh.expiresInSeconds > 0 ? fresh.expiresInSeconds : 30;
+    } catch {
+      setQrStale(true);
+      return 30;
+    }
   }, [cardId]);
 
-  // Dynamic QR: refresh the signed token for the selected card every 30 s.
+  // Dynamic QR: regenerate exactly when the current code expires, so a shown QR
+  // is always the freshest and its lifetime matches the server-side validity.
   useEffect(() => {
     if (!cardId) {
       return;
     }
     setQr(null);
-    refreshQr();
-    const timer = setInterval(refreshQr, 30_000);
-    return () => clearInterval(timer);
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const cycle = async () => {
+      const ttl = await refreshQr();
+      if (active) {
+        timer = setTimeout(() => void cycle(), Math.max(5, ttl) * 1000);
+      }
+    };
+    void cycle();
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
   }, [cardId, refreshQr]);
 
   async function pullRefresh() {
     setRefreshing(true);
     await loadCards();
-    refreshQr();
+    void refreshQr();
     setTimeout(() => setRefreshing(false), 400);
   }
 
