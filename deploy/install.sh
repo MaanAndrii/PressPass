@@ -244,6 +244,9 @@ MAIL_FROM=PressPass <onboarding@resend.dev>
 # Google OAuth (порожньо — кнопка входу через Google прихована)
 GOOGLE_CLIENT_ID=${PP_GOOGLE_CLIENT_ID}
 GOOGLE_CLIENT_SECRET=${PP_GOOGLE_CLIENT_SECRET}
+# Контактна адреса на сторінках «Політика конфіденційності» та «Умови
+# використання» (за замовчуванням — email адміністратора платформи).
+NEXT_PUBLIC_CONTACT_EMAIL=${PP_CONTACT_EMAIL:-$PP_ADMIN_EMAIL}
 # Відносний шлях: фронтенд звертається до API через той самий хост, з якого
 # відкрито сайт, — працює і за доменом, і за будь-яким IP.
 NEXT_PUBLIC_API_URL=/api

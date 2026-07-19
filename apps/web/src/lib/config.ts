@@ -8,6 +8,14 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? '/api';
 
 /**
+ * Contact address shown on the legal pages (privacy policy / terms). Set via
+ * NEXT_PUBLIC_CONTACT_EMAIL in .env (the installer defaults it to the platform
+ * administrator's email). Empty → the pages point to the site administrator
+ * without printing an address.
+ */
+export const CONTACT_EMAIL = process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? '';
+
+/**
  * Base URL for server-side rendering (the /verify page fetches the API from
  * the Next.js process itself). A relative path is not a valid fetch URL in
  * Node, so SSR talks to the API directly, bypassing Nginx.
