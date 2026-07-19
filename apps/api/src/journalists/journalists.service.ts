@@ -347,6 +347,12 @@ export class JournalistsService {
     if (actor.role !== 'EDITORIAL_ADMIN' || !actor.editorialId) {
       throw new ForbiddenException('Прибрати з редакції може лише редакційний адміністратор');
     }
+    // A credential must not outlive the membership: block this editorial's still
+    // active cards for the journalist before removing access.
+    await this.prisma.card.updateMany({
+      where: { journalistId: id, editorialId: actor.editorialId, status: 'ACTIVE' },
+      data: { status: 'BLOCKED' },
+    });
     await this.prisma.editorialMembership.deleteMany({
       where: { journalistId: id, editorialId: actor.editorialId },
     });

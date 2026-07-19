@@ -55,13 +55,13 @@ function resolveText(
       if (!data.mediaId) {
         return '';
       }
-      return `${el.content || labelFor('mediaId', lang)} ${data.mediaId}`.trim();
+      return `${pick(el.content ?? '', el.contentEn) || labelFor('mediaId', lang)} ${data.mediaId}`.trim();
     }
     case 'expireDate':
-      return `${el.content || labelFor('expireDate', lang)} ${data.expireDate}`.trim();
+      return `${pick(el.content ?? '', el.contentEn) || labelFor('expireDate', lang)} ${data.expireDate}`.trim();
     case 'custom':
     default:
-      return el.content ?? '';
+      return pick(el.content ?? '', el.contentEn);
   }
 }
 

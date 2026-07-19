@@ -6,6 +6,7 @@ describe('MeService owner encrypted profile', () => {
     user: { findUnique: jest.fn(), update: jest.fn() },
     journalist: { findUnique: jest.fn(), update: jest.fn() },
     card: { findMany: jest.fn() },
+    editorialMembership: { count: jest.fn(() => Promise.resolve(0)) },
   };
   const userKeys: any = { rewrap: jest.fn(), provision: jest.fn(), decryptUserData: jest.fn() };
   const sessions: any = { key: jest.fn(() => Buffer.alloc(32, 4)), revokeUser: jest.fn() };

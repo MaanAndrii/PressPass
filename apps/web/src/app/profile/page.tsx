@@ -113,8 +113,22 @@ export default function ProfilePage() {
   }
 
   const journalist = profile?.journalist;
-  const profileComplete = Boolean(journalist?.profileComplete);
+  // Editing/deletion is allowed only while the journalist belongs to no
+  // editorial; once a member, the editorial manages the questionnaire.
+  const managed = Boolean(profile && profile.memberships.length > 0);
   const photo = photoUrl(journalist?.photoPath ?? null);
+
+  async function handleDeleteAccount() {
+    if (!window.confirm('Видалити свій акаунт і анкету? Дію не можна скасувати.')) return;
+    setError(null);
+    try {
+      await api('/me/account', { method: 'DELETE' });
+      clearSession();
+      router.replace('/');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не вдалося видалити акаунт');
+    }
+  }
 
   return (
     <main className="mx-auto max-w-xl p-4 py-8">
@@ -132,9 +146,9 @@ export default function ProfilePage() {
       </div>
       <h1 className="mb-1 text-2xl font-bold text-blue-700">Анкета журналіста</h1>
       <p className="mb-6 text-sm text-slate-500">
-        {profileComplete
-          ? 'Ваша анкета заповнена та доступна лише для перегляду. Унікальний ID можна скопіювати нижче.'
-          : 'Заповніть усі поля та додайте фото. Після перевірки даних адміністратор видасть вам електронне посвідчення.'}
+        {managed
+          ? 'Вашу анкету керує редакція — доступно лише для перегляду. Унікальний ID можна скопіювати нижче.'
+          : 'Заповніть усі поля та додайте фото. Поки ви не належите до жодної редакції, анкету можна редагувати або видалити.'}
       </p>
 
       {loading && <p className="text-slate-500">Завантаження анкети…</p>}
@@ -202,9 +216,9 @@ export default function ProfilePage() {
               <p className="mb-2 text-sm font-medium text-slate-700">
                 Фото для посвідчення <span className="text-red-500">*</span>
               </p>
-              {profileComplete ? (
+              {managed ? (
                 <p className="rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-500">
-                  Фото вже додано. Редагування анкети вимкнено.
+                  Анкету керує ваша редакція — редагування вимкнено.
                 </p>
               ) : (
                 <>
@@ -225,7 +239,7 @@ export default function ProfilePage() {
 
           <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl bg-white p-5 shadow">
             <Field
-              disabled={profileComplete}
+              disabled={managed}
               label="ПІП (повністю) *"
               required
               minLength={5}
@@ -242,7 +256,7 @@ export default function ProfilePage() {
             <div className="flex items-end gap-2">
               <div className="flex-1">
                 <Field
-                  disabled={profileComplete}
+                  disabled={managed}
                   label="ПІП латиницею (для картки)"
                   placeholder="Mariia Sydorenko"
                   value={form.fullNameEn}
@@ -252,7 +266,7 @@ export default function ProfilePage() {
                   }}
                 />
               </div>
-              {!profileComplete && (
+              {!managed && (
                 <button
                   type="button"
                   onClick={() => {
@@ -267,7 +281,7 @@ export default function ProfilePage() {
               )}
             </div>
             <Field
-              disabled={profileComplete}
+              disabled={managed}
               label="Дата народження *"
               type="date"
               required
@@ -276,7 +290,7 @@ export default function ProfilePage() {
               onChange={(e) => setForm({ ...form, birthDate: e.target.value })}
             />
             <Field
-              disabled={profileComplete}
+              disabled={managed}
               label="Паспортні дані (серія, номер, ким виданий) *"
               required
               minLength={6}
@@ -284,7 +298,7 @@ export default function ProfilePage() {
               onChange={(e) => setForm({ ...form, passportData: e.target.value })}
             />
             <Field
-              disabled={profileComplete}
+              disabled={managed}
               label="ІПН (10 цифр) *"
               required
               inputMode="numeric"
@@ -294,7 +308,7 @@ export default function ProfilePage() {
               onChange={(e) => setForm({ ...form, taxNumber: e.target.value.replace(/\D/g, '') })}
             />
             <Field
-              disabled={profileComplete}
+              disabled={managed}
               label="Телефон *"
               type="tel"
               required
@@ -305,7 +319,7 @@ export default function ProfilePage() {
             <label className="flex items-center gap-2 text-sm text-slate-700">
               <input
                 type="checkbox"
-                disabled={profileComplete}
+                disabled={managed}
                 checked={form.nszhuMember}
                 onChange={(e) => setForm({ ...form, nszhuMember: e.target.checked })}
                 className="h-4 w-4 rounded border-slate-300"
@@ -318,12 +332,21 @@ export default function ProfilePage() {
                 Анкету збережено ✓ {journalist?.profileComplete && 'Переходимо до посвідчення…'}
               </p>
             )}
-            {!profileComplete && (
+            {!managed && (
               <Button type="submit" disabled={busy} className="w-full">
                 {busy ? 'Збереження…' : 'Зберегти анкету'}
               </Button>
             )}
           </form>
+          {!managed && (
+            <button
+              type="button"
+              onClick={() => void handleDeleteAccount()}
+              className="mt-4 text-sm text-red-600 hover:underline"
+            >
+              Видалити акаунт і анкету
+            </button>
+          )}
         </>
       )}
     </main>

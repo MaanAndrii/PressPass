@@ -1,106 +1,60 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { DEFAULT_CARD_TEMPLATE, sanitizeCardTemplate, type CardTemplate } from '@presspass/shared';
 import { PrismaService } from '../prisma/prisma.service';
-import { UnlockSessionService } from '../crypto/unlock-session.service';
-import { DomainPayloadService } from '../crypto/domain-payload.service';
+
 const GLOBAL_ID = 1;
+
+/**
+ * Card design templates. A design is PUBLIC by nature — it is printed on every
+ * credential and shown on the verify page — so it is stored in the clear and
+ * served without a key. This also means it survives an API restart, unlike the
+ * previous encrypted storage that relied on a volatile in-memory cache (which,
+ * once lost on restart, silently fell back to the default design).
+ */
 @Injectable()
 export class CardTemplateService {
-  private readonly publicCache = new Map<string, CardTemplate>();
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly sessions: UnlockSessionService,
-    private readonly payloads: DomainPayloadService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
+
   async get(editorialId?: number | null): Promise<CardTemplate> {
-    const cacheKey = editorialId == null ? 'system' : `editorial:${editorialId}`;
-    const cached = this.publicCache.get(cacheKey);
-    if (cached) return cached;
     if (editorialId != null) {
       const own = await this.prisma.cardTemplate.findUnique({ where: { editorialId } });
-      if (own && !own.encryptedData) return sanitizeCardTemplate(own.data);
+      const ownTemplate = readTemplate(own?.data);
+      if (ownTemplate) return ownTemplate;
     }
     const global = await this.prisma.cardTemplate.findUnique({ where: { id: GLOBAL_ID } });
-    return global && !global.encryptedData
-      ? sanitizeCardTemplate(global.data)
-      : DEFAULT_CARD_TEMPLATE;
+    return readTemplate(global?.data) ?? DEFAULT_CARD_TEMPLATE;
   }
-  async update(
-    input: unknown,
-    editorialId: number | null | undefined,
-    userId: number,
-    token?: string,
-  ): Promise<CardTemplate> {
+
+  async update(input: unknown, editorialId: number | null | undefined): Promise<CardTemplate> {
     const template = sanitizeCardTemplate(input);
-    const target = editorialId == null ? 'system' : `editorial:${editorialId}`;
-    const key = this.key(userId, target, token);
-    try {
-      const encryptedData = this.payloads.encrypt(
-        'card-template',
-        editorialId ?? GLOBAL_ID,
-        target === 'system' ? 'system:1' : target,
-        { template },
-        key,
-      );
-      if (editorialId != null)
-        await this.prisma.cardTemplate.upsert({
-          where: { editorialId },
-          update: { encryptedData, data: {} },
-          create: { editorialId, encryptedData, data: {} },
-        });
-      else
-        await this.prisma.cardTemplate.upsert({
-          where: { id: GLOBAL_ID },
-          update: { encryptedData, data: {} },
-          create: { id: GLOBAL_ID, encryptedData, data: {} },
-        });
-      this.publicCache.set(target, template);
-      return template;
-    } finally {
-      key.fill(0);
-    }
+    const data = template as unknown as Prisma.InputJsonValue;
+    if (editorialId != null)
+      await this.prisma.cardTemplate.upsert({
+        where: { editorialId },
+        update: { data, encryptedData: Prisma.DbNull },
+        create: { editorialId, data },
+      });
+    else
+      await this.prisma.cardTemplate.upsert({
+        where: { id: GLOBAL_ID },
+        update: { data, encryptedData: Prisma.DbNull },
+        create: { id: GLOBAL_ID, data },
+      });
+    return template;
   }
-  async reset(
-    editorialId: number | null | undefined,
-    userId: number,
-    token?: string,
-  ): Promise<CardTemplate> {
+
+  async reset(editorialId: number | null | undefined): Promise<CardTemplate> {
     if (editorialId != null) {
       await this.prisma.cardTemplate.deleteMany({ where: { editorialId } });
-      this.publicCache.delete(`editorial:${editorialId}`);
       return this.get(editorialId);
     }
-    return this.update(DEFAULT_CARD_TEMPLATE, null, userId, token);
+    return this.update(DEFAULT_CARD_TEMPLATE, null);
   }
-  async unlock(editorialId: number | null, userId: number, token?: string): Promise<CardTemplate> {
-    const target = editorialId == null ? 'system' : `editorial:${editorialId}`;
-    const key = this.key(userId, target, token);
-    try {
-      const row =
-        editorialId == null
-          ? await this.prisma.cardTemplate.findUnique({ where: { id: 1 } })
-          : await this.prisma.cardTemplate.findUnique({ where: { editorialId } });
-      if (!row?.encryptedData) return this.get(editorialId);
-      const data = this.payloads.decrypt<{ template: unknown }>(
-        'card-template',
-        editorialId ?? 1,
-        target === 'system' ? 'system:1' : target,
-        row.encryptedData,
-        key,
-      );
-      const template = sanitizeCardTemplate(data.template);
-      this.publicCache.set(target, template);
-      return template;
-    } finally {
-      key.fill(0);
-    }
-  }
-  private key(userId: number, target: string, token?: string): Buffer {
-    if (!token) throw new BadRequestException('Encryption unlock required');
-    try {
-      return this.sessions.key(token, userId, target);
-    } catch {
-      throw new BadRequestException('Encryption unlock required');
-    }
-  }
+}
+
+/** Sanitized template from a stored JSON value, or null when empty/absent. */
+function readTemplate(data: unknown): CardTemplate | null {
+  if (!data || typeof data !== 'object' || Object.keys(data as object).length === 0) return null;
+  return sanitizeCardTemplate(data);
 }

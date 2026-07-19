@@ -1,13 +1,4 @@
-import {
-  Body,
-  Controller,
-  ForbiddenException,
-  Get,
-  Headers,
-  Post,
-  Put,
-  Query,
-} from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import type { BrandingInfo, CardTemplate } from '@presspass/shared';
 
@@ -59,14 +50,8 @@ export class CardTemplateController {
     @Body() body: unknown,
     @CurrentUser() user: JwtPayload,
     @Query('editorialId') editorialId?: string,
-    @Headers('x-unlock-token') unlock?: string,
   ): Promise<CardTemplate> {
-    return this.service.update(
-      body,
-      this.resolveTarget(user, parseEditorialId(editorialId)),
-      user.sub,
-      unlock,
-    );
+    return this.service.update(body, this.resolveTarget(user, parseEditorialId(editorialId)));
   }
 
   @Post('admin/card-template/reset')
@@ -77,13 +62,8 @@ export class CardTemplateController {
   reset(
     @CurrentUser() user: JwtPayload,
     @Query('editorialId') editorialId?: string,
-    @Headers('x-unlock-token') unlock?: string,
   ): Promise<CardTemplate> {
-    return this.service.reset(
-      this.resolveTarget(user, parseEditorialId(editorialId)),
-      user.sub,
-      unlock,
-    );
+    return this.service.reset(this.resolveTarget(user, parseEditorialId(editorialId)));
   }
 
   /**
