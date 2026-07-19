@@ -35,8 +35,12 @@ export default function HomePage() {
           <img src="/icons/logo.png" alt="Логотип PressPass" className="mb-5 h-20 w-20" />
           <h1 className="text-4xl font-extrabold tracking-tight">PressPass</h1>
           <p className="mt-3 max-w-xl text-lg text-blue-100">
-            Електронні посвідчення журналістів: видача, адміністрування та миттєва перевірка за
-            QR-кодом
+            PressPass — платформа для видачі, адміністрування та перевірки електронних посвідчень
+            журналістів.
+          </p>
+          <p className="mt-2 max-w-xl text-sm text-blue-200">
+            PressPass is a web application for issuing, managing and verifying digital press
+            credentials for journalists.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
             <Link
@@ -56,6 +60,25 @@ export default function HomePage() {
           </div>
         </div>
       </header>
+
+      <section className="mx-auto w-full max-w-3xl px-4 pt-10">
+        <h2 className="text-xl font-bold text-slate-800">Про застосунок</h2>
+        <p className="mt-3 text-slate-600">
+          <strong>PressPass</strong> — це вебзастосунок для редакцій та журналістів. Редакції
+          створюють і видають своїм журналістам електронні посвідчення, журналісти зберігають їх у
+          смартфоні як застосунок на головному екрані, а будь-хто може миттєво перевірити дійсність
+          посвідчення, відсканувавши QR-код. Увійти можна за електронною поштою та паролем або через
+          обліковий запис Google; дані облікового запису Google використовуються виключно для входу
+          до PressPass.
+        </p>
+        <p className="mt-3 text-sm text-slate-500">
+          <strong>PressPass</strong> helps newsrooms issue digital press credentials to their
+          journalists, lets journalists carry those credentials on their phone, and lets anyone
+          verify a credential instantly by scanning its QR code. You can sign in with an email and
+          password or with your Google account; Google account data is used only to sign you in to
+          PressPass.
+        </p>
+      </section>
 
       <section className="mx-auto grid w-full max-w-3xl gap-4 px-4 py-10 sm:grid-cols-3">
         <div className="rounded-2xl bg-white p-6 shadow">
