@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   Param,
@@ -88,6 +89,12 @@ export class MeController {
       requestBaseUrl(req, this.meService.verifyBaseUrl),
       unlock,
     );
+  }
+
+  @Delete('me/account')
+  @ApiOperation({ summary: 'Delete your own account (only when you belong to no editorial)' })
+  deleteOwnAccount(@CurrentUser() user: JwtPayload): Promise<{ success: boolean }> {
+    return this.meService.deleteOwnAccount(user.sub);
   }
 
   @Put('me/password')

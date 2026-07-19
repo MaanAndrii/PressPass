@@ -689,26 +689,54 @@ export function CardDesigner() {
                 )}
 
                 {selected.type === 'text' && selected.binding === 'custom' && (
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs text-slate-500">Текст</span>
-                    <input
-                      value={selected.content ?? ''}
-                      maxLength={200}
-                      onChange={(e) => updateElement(selected.id, { content: e.target.value })}
-                      className="rounded-lg border border-slate-300 px-2 py-1"
-                    />
-                  </label>
+                  <>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-slate-500">Текст (укр.)</span>
+                      <input
+                        value={selected.content ?? ''}
+                        maxLength={200}
+                        onChange={(e) => updateElement(selected.id, { content: e.target.value })}
+                        className="rounded-lg border border-slate-300 px-2 py-1"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-slate-500">
+                        Текст (англ.) — на англ. боці картки
+                      </span>
+                      <input
+                        value={selected.contentEn ?? ''}
+                        maxLength={200}
+                        onChange={(e) => updateElement(selected.id, { contentEn: e.target.value })}
+                        className="rounded-lg border border-slate-300 px-2 py-1"
+                      />
+                    </label>
+                  </>
                 )}
                 {(selected.binding === 'mediaId' || selected.type === 'date') && (
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs text-slate-500">Підпис (порожньо — стандартний)</span>
-                    <input
-                      value={selected.content ?? ''}
-                      maxLength={60}
-                      onChange={(e) => updateElement(selected.id, { content: e.target.value })}
-                      className="rounded-lg border border-slate-300 px-2 py-1"
-                    />
-                  </label>
+                  <>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-slate-500">
+                        Підпис укр. (порожньо — стандартний)
+                      </span>
+                      <input
+                        value={selected.content ?? ''}
+                        maxLength={60}
+                        onChange={(e) => updateElement(selected.id, { content: e.target.value })}
+                        className="rounded-lg border border-slate-300 px-2 py-1"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-slate-500">
+                        Підпис англ. (порожньо — стандартний)
+                      </span>
+                      <input
+                        value={selected.contentEn ?? ''}
+                        maxLength={60}
+                        onChange={(e) => updateElement(selected.id, { contentEn: e.target.value })}
+                        className="rounded-lg border border-slate-300 px-2 py-1"
+                      />
+                    </label>
+                  </>
                 )}
                 {selected.type === 'image' && selected.binding === 'custom' && (
                   <label className="flex flex-col gap-1">

@@ -180,6 +180,8 @@ export interface CardElement {
   binding: string;
   /** Literal text for `custom` text elements (or a prefix override). */
   content?: string;
+  /** English variant of `content`, shown on the English side of the card. */
+  contentEn?: string;
   /** Relative image path for a `custom` image element. */
   src?: string;
   x: number;
@@ -420,6 +422,9 @@ function element(value: unknown, index: number): CardElement | null {
   };
   if (e.content !== undefined) {
     out.content = text(e.content, '', 200);
+  }
+  if (e.contentEn !== undefined) {
+    out.contentEn = text(e.contentEn, '', 200);
   }
   if (e.src !== undefined) {
     out.src =

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -185,6 +186,7 @@ export class MeService {
     if (!journalist) {
       throw new NotFoundException('No journalist profile for this user');
     }
+    await this.assertNotManaged(journalist.id);
     const key = this.profileKey(unlockToken, userId);
     try {
       const encryptedData = this.payloads.encrypt(
@@ -239,6 +241,7 @@ export class MeService {
   ): Promise<UserProfile> {
     const journalist = await this.prisma.journalist.findUnique({ where: { userId } });
     if (!journalist) throw new NotFoundException('No journalist profile for this user');
+    await this.assertNotManaged(journalist.id);
     const key = this.profileKey(unlockToken, userId);
     try {
       const fileId = await this.files.store({
@@ -277,6 +280,29 @@ export class MeService {
       key.fill(0);
     }
     return this.getProfile(userId, unlockToken);
+  }
+
+  /**
+   * A journalist manages their own questionnaire only while they belong to no
+   * editorial. Once a member, the editorial owns the credential data.
+   */
+  private async assertNotManaged(journalistId: number): Promise<void> {
+    const memberships = await this.prisma.editorialMembership.count({ where: { journalistId } });
+    if (memberships > 0)
+      throw new ForbiddenException(
+        'Вашу анкету керує редакція — зміни вносить адміністратор медіа',
+      );
+  }
+
+  /** Deletes the journalist's own account — allowed only when in no editorial. */
+  async deleteOwnAccount(userId: number): Promise<{ success: boolean }> {
+    const journalist = await this.prisma.journalist.findUnique({ where: { userId } });
+    if (!journalist) throw new NotFoundException('No journalist profile for this user');
+    await this.assertNotManaged(journalist.id);
+    await this.files.removeOwner('user', String(userId));
+    this.unlockSessions.revokeUser(userId);
+    await this.prisma.user.delete({ where: { id: userId } });
+    return { success: true };
   }
 
   /** Changes the authenticated user's password after verifying the current one. */

@@ -112,8 +112,14 @@ export class CardsService {
       orderBy: { id: 'asc' },
     });
     const result: CardResponse[] = [];
-    for (const card of cards)
-      result.push(mapCard(await this.hydrate(card, actor, unlock), baseUrl));
+    for (const card of cards) {
+      try {
+        result.push(mapCard(await this.hydrate(card, actor, unlock), baseUrl));
+      } catch {
+        // No decryption access (e.g. a card left blocked after the journalist
+        // was removed from the editorial): skip it rather than failing the list.
+      }
+    }
     return result;
   }
   async create(dto: CreateCardDto, actor: JwtPayload, unlock?: string): Promise<CardResponse> {
