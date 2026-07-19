@@ -10,7 +10,7 @@ describe('EditorialsService encrypted records', () => {
       findUnique: jest.fn(),
     },
   };
-  const sessions: any = { key: jest.fn(() => Buffer.alloc(32, 1)) };
+  const sessions: any = { key: jest.fn(() => Buffer.alloc(32, 1)), put: jest.fn() };
   const payloads: any = {
     encrypt: jest.fn(() => ({ version: 1, envelope: { ciphertext: 'opaque' } })),
     decrypt: jest.fn(),

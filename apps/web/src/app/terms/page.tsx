@@ -4,7 +4,7 @@ import { LegalPage, LegalSection } from '@/components/LegalPage';
 import { CONTACT_EMAIL } from '@/lib/config';
 
 export const metadata: Metadata = {
-  title: 'Умови використання — PressPass',
+  title: 'Умови використання',
   description: 'Умови користування платформою електронних журналістських посвідчень PressPass',
 };
 

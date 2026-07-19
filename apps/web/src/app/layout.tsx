@@ -5,8 +5,12 @@ import { RegisterServiceWorker } from '@/components/RegisterServiceWorker';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'PressPass — електронне посвідчення журналіста',
-  description: 'Видача, адміністрування та перевірка електронних журналістських посвідчень',
+  // Home tab title is exactly "PressPass" (matches the OAuth consent-screen app
+  // name); inner pages render as "<page> — PressPass" via the template.
+  title: { default: 'PressPass', template: '%s — PressPass' },
+  description:
+    'PressPass — платформа для видачі, адміністрування та перевірки електронних посвідчень журналістів',
+  applicationName: 'PressPass',
   manifest: '/manifest.webmanifest',
   icons: {
     icon: [

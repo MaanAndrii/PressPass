@@ -69,6 +69,11 @@ export class EditorialsService {
     });
     const editorialKey = await this.hierarchy.provisionEditorial(editorial.id, actor.sub, adminKey);
     adminKey.fill(0);
+    // Make the new editorial key usable in the SAME unlock session: the session's
+    // key set was fixed at login time, so without this the creator would get
+    // "Encryption unlock required" (and logo upload 400) on the new editorial
+    // until a re-login rebuilt the session.
+    if (token) this.sessions.put(token, actor.sub, `editorial:${editorial.id}`, editorialKey);
     try {
       await this.hierarchy.wrapOwnerForRecovery('editorial', String(editorial.id), editorialKey);
       const encryptedData = this.payloads.encrypt(

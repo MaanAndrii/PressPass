@@ -1,6 +1,6 @@
 'use client';
 
-import { Button, Field } from '@presspass/ui';
+import { Button } from '@presspass/ui';
 import {
   DEFAULT_CARD_TEMPLATE,
   IMAGE_BINDINGS,
@@ -44,15 +44,12 @@ const SAMPLE: CardViewData = {
 
 /** Human labels for element bindings, shown in the properties panel. */
 const BINDING_LABELS: Record<string, string> = {
-  title: 'Заголовок',
-  subtitle: 'Підзаголовок',
   fullName: 'ПІБ',
   position: 'Посада',
   organization: 'Редакція',
   mediaId: 'Ідентифікатор медіа',
   cardNumber: 'Номер картки',
   expireDate: 'Дата дійсності',
-  qrCaption: 'Підпис під QR',
   custom: 'Власний текст',
   photo: 'Фото журналіста',
   logo: 'Логотип редакції',
@@ -488,18 +485,10 @@ export function CardDesigner() {
                 />
               </label>
             </div>
-            <Field
-              label="Заголовок"
-              value={theme.titleText}
-              maxLength={60}
-              onChange={(e) => patchTheme({ titleText: e.target.value })}
-            />
-            <Field
-              label="Заголовок (англ.)"
-              value={theme.titleTextEn}
-              maxLength={60}
-              onChange={(e) => patchTheme({ titleTextEn: e.target.value })}
-            />
+            <p className="text-xs text-slate-400">
+              Заголовок, підзаголовок і підпис під QR більше не окремі поля — додайте їх як
+              звичайний текст («+ Текст») із власним написом українською та англійською.
+            </p>
           </section>
         </div>
 

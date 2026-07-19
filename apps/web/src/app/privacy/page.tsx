@@ -4,7 +4,7 @@ import { LegalPage, LegalSection } from '@/components/LegalPage';
 import { CONTACT_EMAIL } from '@/lib/config';
 
 export const metadata: Metadata = {
-  title: 'Політика конфіденційності — PressPass',
+  title: 'Політика конфіденційності',
   description:
     'Як платформа PressPass збирає, використовує та захищає персональні дані користувачів',
 };
