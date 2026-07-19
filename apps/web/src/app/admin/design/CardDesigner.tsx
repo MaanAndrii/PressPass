@@ -105,6 +105,34 @@ function makeElement(type: CardElementType, cx: number, cy: number): CardElement
 }
 
 /**
+ * Offset from the stored (unrotated) top-left to the rotated bounding-box
+ * top-left. Storage keeps `x`/`y` as the UNROTATED top-left and CSS rotates
+ * around the centre, so for 90°/270° the visible box shifts. The designer shows
+ * and edits this bounding-box top-left, so (0,0) is the top-left of the element
+ * AS PLACED regardless of rotation — the coordinate origin turns with the field.
+ */
+function bboxOffset(el: Pick<CardElement, 'width' | 'height' | 'rotation'>): {
+  dx: number;
+  dy: number;
+} {
+  const step = (((Math.round((el.rotation ?? 0) / 90) % 4) + 4) % 4) as 0 | 1 | 2 | 3;
+  const swap = step === 1 || step === 3;
+  const bboxW = swap ? el.height : el.width;
+  const bboxH = swap ? el.width : el.height;
+  return { dx: (el.width - bboxW) / 2, dy: (el.height - bboxH) / 2 };
+}
+
+/** Rotates by ±90° while keeping the bounding-box top-left fixed (no jump). */
+function rotateKeepingBox(el: CardElement, deltaDeg: number): Partial<CardElement> {
+  const before = bboxOffset(el);
+  const bx = el.x + before.dx;
+  const by = el.y + before.dy;
+  const rotation = ((((el.rotation ?? 0) + deltaDeg) % 360) + 360) % 360;
+  const after = bboxOffset({ ...el, rotation });
+  return { rotation, x: Math.round(bx - after.dx), y: Math.round(by - after.dy) };
+}
+
+/**
  * Drag-and-drop press-card designer (free `absolute` layout). A grid helps
  * alignment: dragged elements snap to grid nodes and to the canvas centre/edges
  * (with guide lines). Preview mode hides the grid to show the clean card.
@@ -740,19 +768,35 @@ export function CardDesigner() {
                 )}
 
                 <div className="grid grid-cols-2 gap-2">
-                  {(['x', 'y', 'width', 'height'] as const).map((k) => (
-                    <label key={k} className="flex flex-col gap-1">
-                      <span className="text-xs uppercase text-slate-500">{k}</span>
-                      <input
-                        type="number"
-                        value={selected[k]}
-                        onChange={(e) =>
-                          updateElement(selected.id, { [k]: Number(e.target.value) })
-                        }
-                        className="rounded-lg border border-slate-300 px-2 py-1"
-                      />
-                    </label>
-                  ))}
+                  {(['x', 'y', 'width', 'height'] as const).map((k) => {
+                    // X/Y edit the rotated bounding-box top-left so the origin is
+                    // always the visible top-left corner; W/H stay as-is.
+                    const off = bboxOffset(selected);
+                    const shown =
+                      k === 'x'
+                        ? selected.x + off.dx
+                        : k === 'y'
+                          ? selected.y + off.dy
+                          : selected[k];
+                    return (
+                      <label key={k} className="flex flex-col gap-1">
+                        <span className="text-xs uppercase text-slate-500">{k}</span>
+                        <input
+                          type="number"
+                          value={Math.round(shown)}
+                          onChange={(e) => {
+                            const v = Number(e.target.value);
+                            const d = bboxOffset(selected);
+                            if (k === 'x') updateElement(selected.id, { x: Math.round(v - d.dx) });
+                            else if (k === 'y')
+                              updateElement(selected.id, { y: Math.round(v - d.dy) });
+                            else updateElement(selected.id, { [k]: v });
+                          }}
+                          className="rounded-lg border border-slate-300 px-2 py-1"
+                        />
+                      </label>
+                    );
+                  })}
                 </div>
 
                 {(selected.type === 'text' || selected.type === 'date') && (
@@ -828,9 +872,7 @@ export function CardDesigner() {
                           type="button"
                           title="Повернути вліво на 90°"
                           onClick={() =>
-                            updateElement(selected.id, {
-                              rotation: ((selected.rotation ?? 0) - 90 + 360) % 360,
-                            })
+                            updateElement(selected.id, rotateKeepingBox(selected, -90))
                           }
                           className="h-8 w-8 rounded-lg border border-slate-300 hover:bg-slate-50"
                         >
@@ -839,11 +881,7 @@ export function CardDesigner() {
                         <button
                           type="button"
                           title="Повернути вправо на 90°"
-                          onClick={() =>
-                            updateElement(selected.id, {
-                              rotation: ((selected.rotation ?? 0) + 90) % 360,
-                            })
-                          }
+                          onClick={() => updateElement(selected.id, rotateKeepingBox(selected, 90))}
                           className="h-8 w-8 rounded-lg border border-slate-300 hover:bg-slate-50"
                         >
                           ↻
