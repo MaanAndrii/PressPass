@@ -84,7 +84,15 @@ export default function HomePage() {
       </section>
 
       <footer className="mt-auto py-6 text-center text-xs text-slate-400">
-        PressPass Platform — електронні посвідчення журналістів
+        <p>PressPass Platform — електронні посвідчення журналістів</p>
+        <p className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1">
+          <Link href="/privacy" className="hover:underline">
+            Політика конфіденційності
+          </Link>
+          <Link href="/terms" className="hover:underline">
+            Умови використання
+          </Link>
+        </p>
       </footer>
     </main>
   );

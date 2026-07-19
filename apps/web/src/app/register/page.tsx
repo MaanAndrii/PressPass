@@ -130,6 +130,17 @@ export default function RegisterPage() {
             Увійти
           </Link>
         </p>
+        <p className="mt-4 text-center text-xs text-slate-400">
+          Реєструючись, ви приймаєте{' '}
+          <Link href="/terms" className="hover:underline">
+            Умови використання
+          </Link>{' '}
+          та{' '}
+          <Link href="/privacy" className="hover:underline">
+            Політику конфіденційності
+          </Link>
+          .
+        </p>
       </div>
     </main>
   );
