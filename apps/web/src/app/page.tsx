@@ -49,6 +49,33 @@ export default function HomePage() {
             >
               {primaryAction.label}
             </Link>
+
+      <section className="mx-auto grid w-full max-w-3xl gap-4 px-4 py-10 sm:grid-cols-3">
+        <div className="rounded-2xl bg-white p-6 shadow">
+          <p className="text-3xl">🪪</p>
+          <h2 className="mt-2 font-semibold">Цифрове посвідчення</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Завжди з собою у смартфоні. Встановлюється на головний екран і працює навіть без
+            інтернету.
+          </p>
+        </div>
+        <div className="rounded-2xl bg-white p-6 shadow">
+          <p className="text-3xl">📷</p>
+          <h2 className="mt-2 font-semibold">Перевірка за QR</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Будь-хто може відсканувати QR-код на посвідченні та миттєво переконатися, що воно
+            дійсне.
+          </p>
+        </div>
+        <div className="rounded-2xl bg-white p-6 shadow">
+          <p className="text-3xl">🛡️</p>
+          <h2 className="mt-2 font-semibold">Захист даних</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            QR-код не містить персональних даних — лише захищене посилання на сторінку перевірки.
+          </p>
+        </div>
+      </section>
+            
             {!session && (
               <Link
                 href="/register"
@@ -78,32 +105,6 @@ export default function HomePage() {
           password or with your Google account; Google account data is used only to sign you in to
           PressPass.
         </p>
-      </section>
-
-      <section className="mx-auto grid w-full max-w-3xl gap-4 px-4 py-10 sm:grid-cols-3">
-        <div className="rounded-2xl bg-white p-6 shadow">
-          <p className="text-3xl">🪪</p>
-          <h2 className="mt-2 font-semibold">Цифрове посвідчення</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Завжди з собою у смартфоні. Встановлюється на головний екран і працює навіть без
-            інтернету.
-          </p>
-        </div>
-        <div className="rounded-2xl bg-white p-6 shadow">
-          <p className="text-3xl">📷</p>
-          <h2 className="mt-2 font-semibold">Перевірка за QR</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Будь-хто може відсканувати QR-код на посвідченні та миттєво переконатися, що воно
-            дійсне.
-          </p>
-        </div>
-        <div className="rounded-2xl bg-white p-6 shadow">
-          <p className="text-3xl">🛡️</p>
-          <h2 className="mt-2 font-semibold">Захист даних</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            QR-код не містить персональних даних — лише захищене посилання на сторінку перевірки.
-          </p>
-        </div>
       </section>
 
       <footer className="mt-auto py-6 text-center text-xs text-slate-400">
