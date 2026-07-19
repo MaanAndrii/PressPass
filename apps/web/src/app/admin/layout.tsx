@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { type ReactNode, useEffect, useState } from 'react';
 
 import { api } from '@/lib/api';
-import { clearSession, getStoredUser, getToken } from '@/lib/auth';
+import { clearSession, getStoredUser, getToken, getUnlockToken } from '@/lib/auth';
 
 /** Nav items; `superOnly` are hidden from editorial-bound admins. */
 const NAV_ITEMS = [
@@ -31,9 +31,17 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       router.replace('/login');
       return;
     }
+    // The admin area is only meaningful with an unlocked encryption session:
+    // without it every data call is rejected and rows come back redacted. Send
+    // the admin to unlock first (returning here afterwards) instead of showing
+    // an empty panel that looks like it was reached without unlocking.
+    if (!getUnlockToken()) {
+      router.replace(`/encryption?next=${encodeURIComponent(pathname)}`);
+      return;
+    }
     setIsSuperAdmin(user.role === 'ADMIN');
     setAuthorized(true);
-  }, [router]);
+  }, [router, pathname]);
 
   function handleLogout() {
     void api('/auth/logout', { method: 'POST' }).catch(() => undefined);

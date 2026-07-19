@@ -135,14 +135,26 @@ export class MeService {
     let journalist = user.journalist;
     let email = user.email;
     if (user.encryptedData || journalist?.encryptedData) {
-      const key = this.profileKey(unlockToken, userId);
-      if (user.encryptedData)
+      // Admins unlock via the admin KEK (passphrase / key-file), not the
+      // password-derived 'profile' key, so they structurally cannot decrypt
+      // their own email envelope — e.g. after a Google sign-in there is no
+      // password to derive it. Degrade to a blank email instead of blocking the
+      // whole sign-in. Journalists must re-unlock, so the requirement stands.
+      const isAdmin = user.role === 'ADMIN' || user.role === 'EDITORIAL_ADMIN';
+      let key: Buffer | undefined;
+      try {
+        key = this.profileKey(unlockToken, userId);
+      } catch (error) {
+        if (!isAdmin) throw error;
+        email = '';
+      }
+      if (key && user.encryptedData)
         email = this.userKeys.decryptUserData<{ email: string }>(
           userId,
           user.encryptedData,
           key,
         ).email;
-      if (journalist?.encryptedData) {
+      if (key && journalist?.encryptedData) {
         const data = this.payloads.decrypt<Record<string, unknown>>(
           'journalist',
           journalist.id,
@@ -160,7 +172,7 @@ export class MeService {
           };
         }
       }
-      key.fill(0);
+      key?.fill(0);
     }
     return {
       id: user.id,

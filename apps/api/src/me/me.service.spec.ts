@@ -105,6 +105,44 @@ describe('MeService owner encrypted profile', () => {
       }),
     );
   });
+  it('degrades /me for an admin without a profile key instead of throwing', async () => {
+    // An admin signed in via Google has no password-derived 'profile' key, so
+    // the email envelope cannot be opened — /me must still return, not 400.
+    sessions.key.mockImplementation(() => {
+      throw new Error('Requested key is not unlocked');
+    });
+    prisma.user.findUnique.mockResolvedValue({
+      id: 5,
+      email: 'blind-index-value',
+      role: 'ADMIN',
+      emailVerifiedAt: new Date(),
+      editorialId: null,
+      encryptedData: { ciphertext: 'opaque' },
+      journalist: null,
+    });
+    await expect(service.getProfile(5, 'unlock-token')).resolves.toMatchObject({
+      id: 5,
+      role: 'ADMIN',
+      email: '',
+    });
+  });
+  it('still requires a profile key for a journalist (re-unlock path)', async () => {
+    sessions.key.mockImplementation(() => {
+      throw new Error('Requested key is not unlocked');
+    });
+    prisma.user.findUnique.mockResolvedValue({
+      id: 8,
+      email: 'blind',
+      role: 'JOURNALIST',
+      emailVerifiedAt: new Date(),
+      editorialId: null,
+      encryptedData: { ciphertext: 'opaque' },
+      journalist: null,
+    });
+    await expect(service.getProfile(8, 'unlock-token')).rejects.toThrow(
+      'Encryption unlock required',
+    );
+  });
   it('rewraps the same DEK on password change and revokes every unlock session', async () => {
     prisma.user.findUnique.mockResolvedValue({
       id: 7,
