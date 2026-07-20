@@ -77,7 +77,7 @@ export class GoogleAuthService {
    * in (creating the account on first login) and returns the URL of the web
    * app to redirect to, with our JWT in the fragment.
    */
-  async handleCallback(code: string, state: string): Promise<string> {
+  async handleCallback(code: string, state: string): Promise<{ url: string; userId: number }> {
     this.ensureEnabled();
     try {
       await this.jwtService.verifyAsync(state);
@@ -137,7 +137,8 @@ export class GoogleAuthService {
       tokenVersion: user.tokenVersion,
     };
     const accessToken = await this.jwtService.signAsync(jwt);
-    return `${this.siteBaseUrl}/auth/callback#token=${encodeURIComponent(accessToken)}&enrollment=${user.dataKeyEnvelope ? '0' : '1'}&user=${user.id}&role=${user.role}&editorial=${user.editorialId ?? ''}`;
+    const url = `${this.siteBaseUrl}/auth/callback#token=${encodeURIComponent(accessToken)}&enrollment=${user.dataKeyEnvelope ? '0' : '1'}&user=${user.id}&role=${user.role}&editorial=${user.editorialId ?? ''}`;
+    return { url, userId: user.id };
   }
 
   private async verifyIdToken(idToken: string | undefined): Promise<GoogleIdTokenPayload> {

@@ -179,7 +179,31 @@ export class AuthService {
     }
   }
 
-  async logout(userId: number): Promise<{ success: boolean }> {
+  /** Signs a short-lived access token for a user (used by the refresh flow). */
+  async accessTokenForUser(userId: number): Promise<{ accessToken: string; role: Role } | null> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return null;
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role as Role,
+      editorialId: user.editorialId,
+      tokenVersion: user.tokenVersion,
+    };
+    return { accessToken: await this.jwtService.signAsync(payload), role: user.role as Role };
+  }
+
+  /** Sign out of THIS device only: ends the in-memory unlock; the caller also
+   *  revokes this device's refresh token. tokenVersion is left intact so other
+   *  devices stay signed in. */
+  logout(userId: number): { success: boolean } {
+    this.unlockSessions.revokeUser(userId);
+    return { success: true };
+  }
+
+  /** Sign out of ALL devices: bump tokenVersion (invalidates every access and
+   *  refresh token at once) and drop the in-memory unlock. */
+  async logoutAll(userId: number): Promise<{ success: boolean }> {
     this.unlockSessions.revokeUser(userId);
     await this.prisma.user.update({
       where: { id: userId },

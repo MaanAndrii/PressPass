@@ -290,4 +290,57 @@ export class EncryptionAccessService {
     this.sessions.revokeUser(userId);
     return { success: true };
   }
+
+  // ── Device-bound unlock (PWA "stay signed in", journalists only) ────────────
+  // The journalist's profile DEK is handed to their device once (after a normal
+  // password unlock) and kept there wrapped by a non-extractable key. On the next
+  // app open the device sends it back to re-establish the short in-memory unlock
+  // session — no password re-entry. Dump-safe: the server persists nothing.
+
+  /** Returns the current session's profile DEK so the device can remember it. */
+  deviceKey(userId: number, role: Role, token?: string): { profileKey: string } {
+    if (role !== 'JOURNALIST')
+      throw new BadRequestException('Device key is available to journalists');
+    if (!token) throw new BadRequestException('Encryption unlock required');
+    let key: Buffer;
+    try {
+      key = this.sessions.key(token, userId, 'profile');
+    } catch {
+      throw new BadRequestException('Encryption unlock required');
+    }
+    try {
+      return { profileKey: key.toString('base64') };
+    } finally {
+      key.fill(0);
+    }
+  }
+
+  /** Re-establishes an unlock session from the device-held profile DEK. */
+  async deviceUnlock(
+    userId: number,
+    role: Role,
+    profileKeyB64: string,
+  ): Promise<{ unlockToken: string; expiresAt: string }> {
+    if (role !== 'JOURNALIST')
+      throw new BadRequestException('Device unlock is available to journalists');
+    const key = Buffer.from(profileKeyB64 ?? '', 'base64');
+    if (key.length !== 32) throw new BadRequestException('Invalid device key');
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new BadRequestException('Account not found');
+    try {
+      // Confirm the key actually opens this account before trusting it, so a
+      // stale device key fails cleanly (the client then asks for the password).
+      if (user.encryptedData) {
+        try {
+          this.userKeys.decryptUserData(userId, user.encryptedData, key);
+        } catch {
+          throw new BadRequestException('DEVICE_KEY_INVALID');
+        }
+      }
+      const result = this.sessions.create(userId, new Map([['profile', key]]));
+      return { unlockToken: result.token, expiresAt: result.expiresAt };
+    } finally {
+      key.fill(0);
+    }
+  }
 }
