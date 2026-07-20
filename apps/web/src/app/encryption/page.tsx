@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { getStoredUser, getToken, saveSession, saveUnlockToken } from '@/lib/auth';
+import { enrollDevice } from '@/lib/session';
 import { EncryptionCredentialInput } from '@/components/EncryptionCredentialInput';
 
 /** A safe internal redirect target from the ?next= query, else null. */
@@ -39,6 +40,8 @@ export default function EncryptionUnlockPage() {
       const user = await api<import('@presspass/shared').UserProfile>('/me');
       const token = getToken();
       if (token) saveSession(token, user, result.unlockToken);
+      // Journalists: remember this device so future opens skip the password.
+      if (user.role === 'JOURNALIST') void enrollDevice();
       router.replace(
         nextTarget() ??
           (user.role === 'JOURNALIST'

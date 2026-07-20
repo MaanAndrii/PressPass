@@ -6,6 +6,7 @@ import { CryptoModule } from '../crypto/crypto.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { GoogleAuthService } from './google.service';
+import { RefreshTokenService } from './refresh-token.service';
 import { RegistrationService } from './registration.service';
 
 @Module({
@@ -30,6 +31,6 @@ import { RegistrationService } from './registration.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, RegistrationService, GoogleAuthService],
+  providers: [AuthService, RegistrationService, GoogleAuthService, RefreshTokenService],
 })
 export class AuthModule {}

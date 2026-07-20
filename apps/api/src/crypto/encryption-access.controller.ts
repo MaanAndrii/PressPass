@@ -17,6 +17,7 @@ import { EncryptionAccessService } from './encryption-access.service';
 import { RecoverySlotsDto } from './dto/recovery-slots.dto';
 import { RecoverOwnerDto } from './dto/recover-owner.dto';
 import { ChangeEncryptionPassphraseDto } from './dto/change-encryption-passphrase.dto';
+import { DeviceUnlockDto } from './dto/device-unlock.dto';
 
 @ApiTags('encryption')
 @ApiBearerAuth()
@@ -99,5 +100,17 @@ export class EncryptionAccessController {
   @ApiOperation({ summary: 'Destroy every in-memory key session for the account' })
   lock(@CurrentUser() user: JwtPayload) {
     return this.access.lock(user.sub);
+  }
+  @Post('device/key')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Return the profile key so this device can remember it (journalist)' })
+  deviceKey(@CurrentUser() user: JwtPayload, @Headers('x-unlock-token') token?: string) {
+    return this.access.deviceKey(user.sub, user.role as Role, token);
+  }
+  @Post('device/unlock')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Re-open a key session from the device-held profile key (journalist)' })
+  deviceUnlock(@CurrentUser() user: JwtPayload, @Body() dto: DeviceUnlockDto) {
+    return this.access.deviceUnlock(user.sub, user.role as Role, dto.profileKey);
   }
 }

@@ -42,6 +42,11 @@ export function saveUnlockToken(token: string): void {
   localStorage.setItem(UNLOCK_KEY, token);
 }
 
+/** Replaces just the access token (used by the silent refresh flow). */
+export function saveAccessToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
 export function getUnlockToken(): string | null {
   return typeof window === 'undefined' ? null : localStorage.getItem(UNLOCK_KEY);
 }

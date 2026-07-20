@@ -8,6 +8,7 @@ import { type FormEvent, useEffect, useRef, useState } from 'react';
 
 import { api, ApiError, apiUpload } from '@/lib/api';
 import { clearSession, getToken } from '@/lib/auth';
+import { forgetDeviceKey } from '@/lib/deviceKey';
 import { photoUrl } from '@/lib/config';
 import { JoinRequestsPanel } from '@/components/JoinRequestsPanel';
 
@@ -96,6 +97,7 @@ export default function ProfilePage() {
 
   function handleLogout() {
     void api('/auth/logout', { method: 'POST' }).catch(() => undefined);
+    void forgetDeviceKey();
     clearSession();
     router.replace('/');
   }
@@ -123,6 +125,7 @@ export default function ProfilePage() {
     setError(null);
     try {
       await api('/me/account', { method: 'DELETE' });
+      void forgetDeviceKey();
       clearSession();
       router.replace('/');
     } catch (err) {

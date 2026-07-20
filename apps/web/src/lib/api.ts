@@ -2,6 +2,7 @@
 
 import { API_URL } from './config';
 import { getToken, getUnlockToken } from './auth';
+import { refreshAccessToken, tryDeviceUnlock } from './session';
 
 export class ApiError extends Error {
   constructor(
@@ -27,24 +28,43 @@ interface RequestOptions {
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, auth = true } = options;
 
-  const headers: Record<string, string> = {};
-  if (body !== undefined) {
-    headers['Content-Type'] = 'application/json';
-  }
-  if (auth) {
-    const token = getToken();
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
+  const send = () => {
+    const headers: Record<string, string> = {};
+    if (body !== undefined) {
+      headers['Content-Type'] = 'application/json';
     }
-    const unlock = getUnlockToken();
-    if (unlock) headers['X-Unlock-Token'] = unlock;
-  }
+    if (auth) {
+      const token = getToken();
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+      const unlock = getUnlockToken();
+      if (unlock) headers['X-Unlock-Token'] = unlock;
+    }
+    return fetch(`${API_URL}${path}`, {
+      method,
+      headers,
+      credentials: 'include',
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  };
 
-  const response = await fetch(`${API_URL}${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let response = await send();
+
+  // Silent recovery for a PWA: a stale access token is refreshed via the cookie,
+  // and an expired encryption unlock is re-opened from the device key. Retry once.
+  if (auth && response.status === 401 && (await refreshAccessToken())) {
+    response = await send();
+  }
+  if (auth && response.status === 400) {
+    const peek = await response
+      .clone()
+      .json()
+      .catch(() => null);
+    if (peek?.message === 'Encryption unlock required' && (await tryDeviceUnlock())) {
+      response = await send();
+    }
+  }
 
   if (!response.ok) {
     let message = `Request failed (${response.status})`;

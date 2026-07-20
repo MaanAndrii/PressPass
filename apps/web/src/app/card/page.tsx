@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PressCard } from '@/components/PressCard';
 import { api, ApiError } from '@/lib/api';
 import { clearSession, getToken } from '@/lib/auth';
+import { forgetDeviceKey } from '@/lib/deviceKey';
 import { useFitScale } from '@/lib/useFitScale';
 
 const STATUS_DOT: Record<CardStatus, string> = {
@@ -199,6 +200,17 @@ export default function CardPage() {
 
   function handleLogout() {
     void api('/auth/logout', { method: 'POST' }).catch(() => undefined);
+    void forgetDeviceKey();
+    clearSession();
+    router.replace('/');
+  }
+
+  function handleLogoutAll() {
+    if (!window.confirm('Вийти з усіх пристроїв? Знадобиться знову ввести пароль скрізь.')) {
+      return;
+    }
+    void api('/auth/logout-all', { method: 'POST' }).catch(() => undefined);
+    void forgetDeviceKey();
     clearSession();
     router.replace('/');
   }
@@ -300,8 +312,15 @@ export default function CardPage() {
               onClick={handleLogout}
               className="mt-1 flex w-full items-center justify-between rounded-xl border-t border-slate-100 px-3 py-2 text-left text-red-600 hover:bg-red-50"
             >
-              <span>Вихід</span>
+              <span>Вихід (цей пристрій)</span>
               <span aria-hidden>×</span>
+            </button>
+            <button
+              onClick={handleLogoutAll}
+              className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-red-600 hover:bg-red-50"
+            >
+              <span>Вийти з усіх пристроїв</span>
+              <span aria-hidden>⎋</span>
             </button>
           </div>
         )}

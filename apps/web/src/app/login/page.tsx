@@ -9,6 +9,7 @@ import { type FormEvent, Suspense, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { API_URL } from '@/lib/config';
 import { saveSession, saveUnlockToken } from '@/lib/auth';
+import { enrollDevice } from '@/lib/session';
 import { EncryptionCredentialInput } from '@/components/EncryptionCredentialInput';
 
 function LoginForm() {
@@ -51,10 +52,14 @@ function LoginForm() {
       if (isAdminRole(result.user.role)) {
         // Admins need a separate encryption credential — ask for it in a modal.
         setPendingAdmin({ enroll: Boolean(result.encryptionEnrollmentRequired) });
-      } else if (result.user.journalist && !result.user.journalist.profileComplete) {
-        router.replace('/profile');
       } else {
-        router.replace('/card');
+        // Remember this device so future opens skip the password (PWA).
+        void enrollDevice();
+        if (result.user.journalist && !result.user.journalist.profileComplete) {
+          router.replace('/profile');
+        } else {
+          router.replace('/card');
+        }
       }
     } catch (err) {
       if (err instanceof ApiError && err.message === 'EMAIL_NOT_VERIFIED') {

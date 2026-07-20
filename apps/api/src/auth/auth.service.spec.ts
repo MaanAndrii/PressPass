@@ -110,10 +110,18 @@ describe('AuthService encrypted login', () => {
     });
     await expect(service.login('x@y.z', 'pass12345')).rejects.toThrow(ForbiddenException);
   });
-  it('destroys unlock material and revokes JWTs on logout', async () => {
+  it('destroys unlock material on per-device logout without bumping tokenVersion', async () => {
     prisma.user.update.mockResolvedValue({});
     const token = sessions.create(9, new Map([['profile', key]])).token;
-    await service.logout(9);
+    service.logout(9);
+    expect(() => sessions.key(token, 9, 'profile')).toThrow();
+    // Other devices stay signed in — no tokenVersion bump on a single-device logout.
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+  it('bumps tokenVersion to revoke every device on logout-all', async () => {
+    prisma.user.update.mockResolvedValue({});
+    const token = sessions.create(9, new Map([['profile', key]])).token;
+    await service.logoutAll(9);
     expect(() => sessions.key(token, 9, 'profile')).toThrow();
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: 9 },
