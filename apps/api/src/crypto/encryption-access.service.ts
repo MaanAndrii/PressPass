@@ -95,7 +95,6 @@ export class EncryptionAccessService {
         where: { id: userId },
         data: {
           ...material,
-          email: this.blind.email(email),
           emailBlindIndex: this.blind.email(email),
           ...(systemSeal ? { systemKeyEnvelope: systemSeal } : {}),
         },

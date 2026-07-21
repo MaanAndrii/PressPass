@@ -17,88 +17,39 @@ async function main(): Promise<void> {
         OR: [
           { encryptedData: { equals: Prisma.DbNull } },
           { emailBlindIndex: null },
-          { email: { contains: '@' } },
           { AND: [{ googleId: { not: null } }, { googleIdBlindIndex: null }] },
           { NOT: { recoveryKeyEnvelope: { equals: Prisma.DbNull } } },
         ],
       },
     })
   )
-    failures.push('users contain plaintext/unmigrated records or legacy server recovery envelopes');
+    failures.push('users contain unmigrated records or legacy server recovery envelopes');
   if (
     await prisma.journalist.count({
-      where: {
-        OR: [
-          { encryptedData: { equals: Prisma.DbNull } },
-          { fullName: { not: '' } },
-          { fullNameEn: { not: '' } },
-          { position: { not: '' } },
-          { positionEn: { not: '' } },
-          { organization: { not: '' } },
-          { organizationEn: { not: '' } },
-          { birthDate: { not: null } },
-          { passportData: { not: null } },
-          { taxNumber: { not: null } },
-          { phone: { not: null } },
-          { photoPath: { not: null } },
-          { nszhuMember: true },
-        ],
-      },
+      where: { encryptedData: { equals: Prisma.DbNull } },
     })
   )
-    failures.push('journalists contain plaintext fields');
+    failures.push('journalists are missing their encrypted payload');
   if (
     await prisma.editorial.count({
-      where: {
-        OR: [
-          { encryptedData: { equals: Prisma.DbNull } },
-          { name: { not: '' } },
-          { displayNameUk: { not: '' } },
-          { displayNameEn: { not: '' } },
-          { mediaId: { not: '' } },
-          { cardNumberPrefix: { not: '' } },
-          { cardNumberTemplate: { not: '{prefix}-{year}-{seq:6}' } },
-          { edrpou: { not: '' } },
-          { website: { not: '' } },
-          { director: { not: '' } },
-          { email: { not: '' } },
-          { address: { not: '' } },
-          { phone: { not: '' } },
-          { logoPath: { not: null } },
-        ],
-      },
+      where: { encryptedData: { equals: Prisma.DbNull } },
     })
   )
-    failures.push('editorials contain plaintext fields');
+    failures.push('editorials are missing their encrypted payload');
   if (
     await prisma.card.count({
       where: {
-        OR: [
-          { encryptedData: { equals: Prisma.DbNull } },
-          { cardNumberBlindIndex: null },
-          { cardNumber: { not: { startsWith: 'encrypted:' } } },
-          { position: { not: '' } },
-          { positionEn: { not: '' } },
-          { issueDate: { not: null } },
-          { expireDate: { not: null } },
-        ],
+        OR: [{ encryptedData: { equals: Prisma.DbNull } }, { cardNumberBlindIndex: null }],
       },
     })
   )
-    failures.push('cards contain plaintext fields');
+    failures.push('cards are missing their encrypted payload or blind index');
   if (
     await prisma.appSetting.count({
-      where: {
-        OR: [
-          { encryptedData: { equals: Prisma.DbNull } },
-          { resendApiKey: { not: null } },
-          { mailFrom: { not: null } },
-          { nszhuLogoPath: { not: null } },
-        ],
-      },
+      where: { encryptedData: { equals: Prisma.DbNull } },
     })
   )
-    failures.push('settings contain plaintext fields');
+    failures.push('settings are missing their encrypted payload');
   // Card designs are PUBLIC (printed on credentials, shown on /verify), so they
   // are intentionally stored as plaintext `data` and must NOT be encrypted.
   for (const item of await prisma.emailVerification.findMany({ select: { id: true, code: true } }))

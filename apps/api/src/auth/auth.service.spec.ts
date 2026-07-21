@@ -66,7 +66,9 @@ describe('AuthService encrypted login', () => {
     });
     const result = await service.login(' OWNER@Example.com ', 'correct-password');
     expect(prisma.user.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ OR: expect.any(Array) }) }),
+      expect.objectContaining({
+        where: expect.objectContaining({ emailBlindIndex: expect.stringMatching(/^v1:/) }),
+      }),
     );
     expect(result.user.email).toBe('owner@example.com');
     expect(result.unlockToken).toMatch(/^[A-Za-z0-9_-]{43}$/);

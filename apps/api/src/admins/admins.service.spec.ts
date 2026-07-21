@@ -52,9 +52,10 @@ describe('AdminsService key enrollment', () => {
     const index = blind.email('admin@example.com');
     expect(prisma.user.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ email: index, emailBlindIndex: index }),
+        data: expect.objectContaining({ emailBlindIndex: index }),
       }),
     );
+    expect((prisma.user.create as jest.Mock).mock.calls[0][0].data).not.toHaveProperty('email');
     expect(hierarchy.enrollAdmin).toHaveBeenCalledWith(8, 'separate crypto passphrase');
     expect(hierarchy.grantEditorialToAdmin).toHaveBeenCalled();
   });

@@ -25,7 +25,7 @@ describe('SettingsService encrypted storage', () => {
     jest.clearAllMocks();
     service = create();
   });
-  it('stores secrets only inside the encrypted payload and clears legacy columns', async () => {
+  it('stores secrets only inside the encrypted payload', async () => {
     prisma.appSetting.findUnique.mockResolvedValue(null);
     prisma.appSetting.upsert.mockResolvedValue({});
     await service.update({ resendApiKey: 're_secret', mailFrom: 'Sender <x@y.z>' }, 1, 'unlock');
@@ -38,13 +38,13 @@ describe('SettingsService encrypted storage', () => {
     );
     expect(prisma.appSetting.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        update: expect.objectContaining({
-          resendApiKey: null,
-          mailFrom: null,
-          nszhuLogoPath: null,
-        }),
+        update: expect.objectContaining({ encryptedData: expect.any(Object) }),
       }),
     );
+    const updateData = (prisma.appSetting.upsert as jest.Mock).mock.calls[0][0].update;
+    expect(updateData).not.toHaveProperty('resendApiKey');
+    expect(updateData).not.toHaveProperty('mailFrom');
+    expect(updateData).not.toHaveProperty('nszhuLogoPath');
   });
   it('does not expose the configured secret in the public response', async () => {
     prisma.appSetting.findUnique.mockResolvedValue({ encryptedData: {} });

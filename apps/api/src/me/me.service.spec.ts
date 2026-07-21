@@ -33,7 +33,7 @@ describe('MeService owner encrypted profile', () => {
     hierarchy,
   );
   beforeEach(() => jest.clearAllMocks());
-  it('encrypts the complete questionnaire and scrubs legacy columns', async () => {
+  it('encrypts the complete questionnaire into the payload only', async () => {
     prisma.journalist.findUnique.mockResolvedValue({
       id: 3,
       userId: 7,
@@ -95,15 +95,12 @@ describe('MeService owner encrypted profile', () => {
     );
     expect(prisma.journalist.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          fullName: '',
-          passportData: null,
-          taxNumber: null,
-          phone: null,
-          encryptedData: expect.any(Object),
-        }),
+        data: expect.objectContaining({ encryptedData: expect.any(Object) }),
       }),
     );
+    const updateData = (prisma.journalist.update as jest.Mock).mock.calls[0][0].data;
+    expect(updateData).not.toHaveProperty('fullName');
+    expect(updateData).not.toHaveProperty('passportData');
   });
   it('preserves the photo and editorial fields when saving the questionnaire', async () => {
     // Photo/position live inside encryptedData; the scrubbed columns read null.

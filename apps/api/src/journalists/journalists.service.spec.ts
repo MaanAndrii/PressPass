@@ -100,7 +100,7 @@ describe('JournalistsService encrypted profile creation', () => {
     });
     prisma.journalist.update.mockResolvedValue({});
   });
-  it('encrypts PII, scrubs Prisma profile columns and creates an owner-key editorial grant', async () => {
+  it('encrypts PII into the payload only and creates an owner-key editorial grant', async () => {
     await service.create(
       { email: 'Owner@Example.com', password: 'password123', fullName: 'Secret Owner' },
       actor,
@@ -111,20 +111,25 @@ describe('JournalistsService encrypted profile creation', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           user: expect.objectContaining({
-            create: expect.objectContaining({ email: index, emailBlindIndex: index }),
+            create: expect.objectContaining({ emailBlindIndex: index }),
           }),
         }),
       }),
     );
+    // The login account carries only the blind index; the email itself is
+    // encrypted, and the questionnaire has no plaintext columns to write.
+    const userCreate = (prisma.journalist.create as jest.Mock).mock.calls[0][0].data.user.create;
+    expect(userCreate).not.toHaveProperty('email');
+    const journalistCreate = (prisma.journalist.create as jest.Mock).mock.calls[0][0].data;
+    expect(journalistCreate).not.toHaveProperty('fullName');
     expect(prisma.journalist.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          fullName: '',
-          passportData: null,
-          encryptedData: expect.any(Object),
-        }),
+        data: expect.objectContaining({ encryptedData: expect.any(Object) }),
       }),
     );
+    const updateData = (prisma.journalist.update as jest.Mock).mock.calls[0][0].data;
+    expect(updateData).not.toHaveProperty('fullName');
+    expect(updateData).not.toHaveProperty('passportData');
     expect(prisma.editorialDataKeyGrant.upsert).toHaveBeenCalled();
   });
 });

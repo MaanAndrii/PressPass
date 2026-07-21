@@ -16,6 +16,7 @@ import type { Editorial, EditorialMembership, Journalist, Prisma, User } from '@
 
 import type { JwtPayload } from '../auth/auth.types';
 import { toIsoDate } from '../common/card.mapper';
+import type { JournalistSecret } from '../common/journalist.mapper';
 import { generateJournalistPublicId, normalizePublicId } from '../common/public-id';
 import { UserKeyMaterialService } from '../crypto/user-key-material.service';
 import { BlindIndexService } from '../crypto/blind-index.service';
@@ -104,7 +105,7 @@ export class JournalistsService {
       cardsCount: journalist._count.cards,
       memberships: journalist.memberships.map((m) => ({
         id: m.editorial.id,
-        name: m.editorial.name,
+        name: m.editorial.publicName,
       })),
       encrypted: true,
     };
@@ -117,7 +118,7 @@ export class JournalistsService {
   ): Promise<AdminJournalist> {
     const email = this.blindIndexes.normalizeEmail(dto.email);
     const existing = await this.prisma.user.findFirst({
-      where: { OR: [{ emailBlindIndex: this.blindIndexes.email(email) }, { email }] },
+      where: { emailBlindIndex: this.blindIndexes.email(email) },
     });
     if (existing) {
       throw new ConflictException('A user with this email already exists');
@@ -129,16 +130,8 @@ export class JournalistsService {
       const created = await tx.journalist.create({
         data: {
           publicId: generateJournalistPublicId(),
-          fullName: dto.fullName,
-          fullNameEn: dto.fullNameEn ?? '',
-          birthDate: dto.birthDate ? new Date(dto.birthDate) : undefined,
-          passportData: dto.passportData ?? undefined,
-          taxNumber: dto.taxNumber ?? undefined,
-          phone: dto.phone ?? undefined,
-          nszhuMember: dto.nszhuMember ?? undefined,
           user: {
             create: {
-              email: this.blindIndexes.email(email),
               emailBlindIndex: this.blindIndexes.email(email),
               passwordHash,
               role: 'JOURNALIST' as Role,
@@ -172,7 +165,6 @@ export class JournalistsService {
         where: { id: created.userId },
         data: {
           ...keyMaterial,
-          email: this.blindIndexes.email(email),
           ...(systemSeal ? { systemKeyEnvelope: systemSeal } : {}),
         },
       });
@@ -185,25 +177,12 @@ export class JournalistsService {
         'journalist',
         journalist.id,
         `user:${journalist.userId}`,
-        this.legacyData(journalist),
+        this.profileData(dto),
         profileKey,
       );
       await this.prisma.journalist.update({
         where: { id: journalist.id },
-        data: {
-          encryptedData,
-          fullName: '',
-          fullNameEn: '',
-          position: '',
-          positionEn: '',
-          organization: '',
-          organizationEn: '',
-          birthDate: null,
-          passportData: null,
-          taxNumber: null,
-          phone: null,
-          photoPath: null,
-        },
+        data: { encryptedData },
       });
       if (journalist.memberships.length && actor.editorialId) {
         const editorialKey = this.editorialKey(actor, unlock, actor.editorialId);
@@ -378,15 +357,7 @@ export class JournalistsService {
     await this.assertManages(id, actor);
     const profile = await this.profileKey(journalist, actor, unlock);
     try {
-      const current = journalist.encryptedData
-        ? this.payloads.decrypt<Record<string, unknown>>(
-            'journalist',
-            id,
-            `user:${journalist.userId}`,
-            journalist.encryptedData,
-            profile,
-          )
-        : this.legacyData(journalist);
+      const current = this.decryptProfile(journalist, profile);
       const changes: Record<string, unknown> = {};
       for (const field of [
         'fullName',
@@ -405,7 +376,6 @@ export class JournalistsService {
         const owner = await this.prisma.user.findFirst({ where: { emailBlindIndex: index } });
         if (owner && owner.id !== journalist.userId)
           throw new ConflictException('A user with this email already exists');
-        userData.email = index;
         userData.emailBlindIndex = index;
         userData.encryptedData = this.userKeys.encryptUserData(
           journalist.userId,
@@ -431,17 +401,6 @@ export class JournalistsService {
             { ...current, ...changes },
             profile,
           ),
-          fullName: '',
-          fullNameEn: '',
-          position: '',
-          positionEn: '',
-          organization: '',
-          organizationEn: '',
-          birthDate: null,
-          passportData: null,
-          taxNumber: null,
-          phone: null,
-          nszhuMember: false,
           ...(Object.keys(userData).length ? { user: { update: userData } } : {}),
         },
       });
@@ -482,19 +441,10 @@ export class JournalistsService {
         bytes,
         ownerKey: profile,
       });
-      const current = journalist.encryptedData
-        ? this.payloads.decrypt<Record<string, unknown>>(
-            'journalist',
-            id,
-            `user:${journalist.userId}`,
-            journalist.encryptedData,
-            profile,
-          )
-        : this.legacyData(journalist);
+      const current = this.decryptProfile(journalist, profile);
       await this.prisma.journalist.update({
         where: { id },
         data: {
-          photoPath: null,
           encryptedData: this.payloads.encrypt(
             'journalist',
             id,
@@ -536,15 +486,15 @@ export class JournalistsService {
     unlock?: string,
     supplied?: Buffer,
   ): Promise<AdminJournalist> {
-    let hydrated = journalist;
-    let email = journalist.user.email;
+    let hydrated: JournalistWithUser & Partial<JournalistSecret> = journalist;
+    let email = journalist.user.emailBlindIndex ?? '';
     let key: Buffer | undefined;
     if (journalist.encryptedData || journalist.user.encryptedData) {
       key = supplied ? Buffer.from(supplied) : await this.profileKey(journalist, actor, unlock);
       if (journalist.encryptedData)
         hydrated = {
           ...journalist,
-          ...this.payloads.decrypt<object>(
+          ...this.payloads.decrypt<Partial<JournalistSecret>>(
             'journalist',
             journalist.id,
             `user:${journalist.userId}`,
@@ -568,30 +518,43 @@ export class JournalistsService {
           photoPath: `/public-media/${this.publicMedia.put(photo.bytes, photo.mimeType, 900)}`,
         };
       }
+      const fullName = hydrated.fullName ?? '';
+      const photoPath = hydrated.photoPath ?? null;
+      const birthDate = hydrated.birthDate ?? null;
+      const passportData = hydrated.passportData ?? null;
+      const taxNumber = hydrated.taxNumber ?? null;
+      const phone = hydrated.phone ?? null;
       return {
         id: hydrated.id,
         userId: hydrated.userId,
         publicId: hydrated.publicId,
         email,
         emailVerified: Boolean(hydrated.user.emailVerifiedAt),
-        fullName: hydrated.fullName,
-        fullNameEn: hydrated.fullNameEn,
-        position: hydrated.position,
-        positionEn: hydrated.positionEn,
-        organization: hydrated.organization,
-        organizationEn: hydrated.organizationEn,
-        photoPath: hydrated.photoPath,
-        birthDate: hydrated.birthDate ? toIsoDate(hydrated.birthDate) : null,
-        passportData: hydrated.passportData,
-        taxNumber: hydrated.taxNumber,
-        phone: hydrated.phone,
-        nszhuMember: hydrated.nszhuMember,
+        fullName,
+        fullNameEn: hydrated.fullNameEn ?? '',
+        position: hydrated.position ?? '',
+        positionEn: hydrated.positionEn ?? '',
+        organization: hydrated.organization ?? '',
+        organizationEn: hydrated.organizationEn ?? '',
+        photoPath,
+        birthDate: birthDate ? toIsoDate(birthDate) : null,
+        passportData,
+        taxNumber,
+        phone,
+        nszhuMember: hydrated.nszhuMember ?? false,
         selfRegistered: hydrated.selfRegistered,
-        profileComplete: isProfileComplete(hydrated),
+        profileComplete: isProfileComplete({
+          fullName,
+          photoPath,
+          birthDate,
+          passportData,
+          taxNumber,
+          phone,
+        }),
         cardsCount: hydrated._count.cards,
         memberships: hydrated.memberships.map((m) => ({
           id: m.editorial.id,
-          name: m.editorial.name,
+          name: m.editorial.publicName,
         })),
       };
     } finally {
@@ -682,20 +645,35 @@ export class JournalistsService {
       throw new BadRequestException('Encryption unlock required');
     }
   }
-  private legacyData(journalist: Journalist): Record<string, unknown> {
+  /** The initial encrypted questionnaire payload built from the create DTO. */
+  private profileData(dto: CreateJournalistDto): JournalistSecret {
     return {
-      fullName: journalist.fullName,
-      fullNameEn: journalist.fullNameEn,
-      position: journalist.position,
-      positionEn: journalist.positionEn,
-      organization: journalist.organization,
-      organizationEn: journalist.organizationEn,
-      photoPath: journalist.photoPath,
-      birthDate: journalist.birthDate?.toISOString().slice(0, 10) ?? null,
-      passportData: journalist.passportData,
-      taxNumber: journalist.taxNumber,
-      phone: journalist.phone,
-      nszhuMember: journalist.nszhuMember,
+      fullName: dto.fullName,
+      fullNameEn: dto.fullNameEn ?? '',
+      position: '',
+      positionEn: '',
+      organization: '',
+      organizationEn: '',
+      photoPath: null,
+      birthDate: dto.birthDate ?? null,
+      passportData: dto.passportData ?? null,
+      taxNumber: dto.taxNumber ?? null,
+      phone: dto.phone ?? null,
+      nszhuMember: dto.nszhuMember ?? false,
     };
+  }
+  /** Decrypts a journalist's questionnaire payload (empty when none stored). */
+  private decryptProfile(
+    journalist: { id: number; userId: number; encryptedData: Prisma.JsonValue | null },
+    profile: Buffer,
+  ): Record<string, unknown> {
+    if (!journalist.encryptedData) return {};
+    return this.payloads.decrypt<Record<string, unknown>>(
+      'journalist',
+      journalist.id,
+      `user:${journalist.userId}`,
+      journalist.encryptedData,
+      profile,
+    );
   }
 }

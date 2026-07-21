@@ -28,12 +28,11 @@ async function main(): Promise<void> {
   const normalizedEmail = blind.normalizeEmail(adminEmail);
   const emailIndex = blind.email(normalizedEmail);
   let admin = await prisma.user.findFirst({
-    where: { OR: [{ emailBlindIndex: emailIndex }, { email: normalizedEmail }] },
+    where: { emailBlindIndex: emailIndex },
   });
   if (!admin)
     admin = await prisma.user.create({
       data: {
-        email: emailIndex,
         emailBlindIndex: emailIndex,
         passwordHash: await argon2.hash(adminPassword),
         role: Role.ADMIN,
@@ -54,7 +53,6 @@ async function main(): Promise<void> {
         // provisioned in a later run (data key from password B) would keep a
         // stale hash and reject the credentials the installer printed.
         passwordHash: await argon2.hash(adminPassword),
-        email: emailIndex,
         emailBlindIndex: emailIndex,
         role: Role.ADMIN,
         emailVerifiedAt: new Date(),

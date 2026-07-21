@@ -30,18 +30,16 @@ export class AuthService {
    * and Google-only accounts, so the endpoint cannot enumerate accounts.
    */
   async login(email: string, password: string): Promise<LoginResponse> {
-    const user = await this.prisma.user.findFirst({
-      where: {
-        OR: [
-          { emailBlindIndex: this.safeEmailIndex(email) },
-          { email: email.toLowerCase().trim() },
-        ],
-      },
-      include: {
-        adminKeyMaterial: true,
-        journalist: { include: { memberships: { include: { editorial: true } } } },
-      },
-    });
+    const emailIndex = this.safeEmailIndex(email);
+    const user = emailIndex
+      ? await this.prisma.user.findFirst({
+          where: { emailBlindIndex: emailIndex },
+          include: {
+            adminKeyMaterial: true,
+            journalist: { include: { memberships: { include: { editorial: true } } } },
+          },
+        })
+      : null;
     // Акаунти, створені через Google, не мають пароля.
     if (!user?.passwordHash) {
       throw new UnauthorizedException('Invalid email or password');
@@ -121,12 +119,12 @@ export class AuthService {
 
     const payload: JwtPayload = {
       sub: user.id,
-      email: user.email,
+      email: user.emailBlindIndex ?? '',
       role: user.role as Role,
       editorialId: user.editorialId,
       tokenVersion: user.tokenVersion,
     };
-    let displayEmail = user.email;
+    let displayEmail = user.emailBlindIndex ?? '';
     let displayJournalist = user.journalist;
     if (unlockedDataKey && user.encryptedData) {
       displayEmail = this.userKeys.decryptUserData<{ email: string }>(
@@ -165,7 +163,7 @@ export class AuthService {
         memberships:
           user.journalist?.memberships.map((m) => ({
             id: m.editorial.id,
-            name: m.editorial.name,
+            name: m.editorial.publicName,
           })) ?? [],
       },
     };
@@ -185,7 +183,7 @@ export class AuthService {
     if (!user) return null;
     const payload: JwtPayload = {
       sub: user.id,
-      email: user.email,
+      email: user.emailBlindIndex ?? '',
       role: user.role as Role,
       editorialId: user.editorialId,
       tokenVersion: user.tokenVersion,

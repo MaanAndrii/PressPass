@@ -172,7 +172,7 @@ export class GoogleAuthService {
     }
 
     const byEmail = await this.prisma.user.findFirst({
-      where: { OR: [{ emailBlindIndex }, { email }] },
+      where: { emailBlindIndex },
     });
     if (byEmail) {
       // Той самий email, зареєстрований паролем: привʼязуємо Google-акаунт.
@@ -188,7 +188,6 @@ export class GoogleAuthService {
 
     return this.prisma.user.create({
       data: {
-        email: emailBlindIndex,
         emailBlindIndex,
         googleId: googleIdBlindIndex,
         googleIdBlindIndex,
@@ -197,7 +196,6 @@ export class GoogleAuthService {
         journalist: {
           create: {
             selfRegistered: true,
-            fullName: '',
             publicId: generateJournalistPublicId(),
           },
         },

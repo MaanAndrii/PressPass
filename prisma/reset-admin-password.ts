@@ -44,7 +44,7 @@ async function main(): Promise<void> {
   const blind = new BlindIndexService(config);
   const index = blind.email(email);
   const user = await prisma.user.findFirst({
-    where: { OR: [{ emailBlindIndex: index }, { email: blind.normalizeEmail(email) }] },
+    where: { emailBlindIndex: index },
   });
   if (!user) throw new Error('Account not found for that email.');
 

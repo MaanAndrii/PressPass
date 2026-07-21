@@ -32,9 +32,8 @@ enum JoinRequestStatus {
 /// password_hash is NULL for Google-only accounts.
 model User {
   id                  Int                     @id @default(autoincrement())
-  email               String                  @unique
-  // Transitional expand/backfill fields. `email` is removed by the contract
-  // migration only after every installation has a verified encrypted payload.
+  // Keyed HMAC of the normalized login email, used for the login/uniqueness
+  // lookup. The email itself lives only inside `encryptedData`.
   emailBlindIndex     String?                 @unique @map("email_blind_index")
   encryptedData       Json?                   @map("encrypted_data")
   passwordHash        String?                 @map("password_hash")
@@ -138,19 +137,9 @@ model Journalist {
   // Short human-friendly code the journalist gives an admin to be added to a
   // media (e.g. "JR-7K3F9Q"); privacy-preserving alternative to listing all.
   publicId       String                @unique @map("public_id")
-  fullName       String                @default("") @map("full_name")
-  fullNameEn     String                @default("") @map("full_name_en")
-  position       String                @default("")
-  positionEn     String                @default("") @map("position_en")
-  organization   String                @default("")
-  organizationEn String                @default("") @map("organization_en")
-  photoPath      String?               @map("photo_path")
-  birthDate      DateTime?             @map("birth_date") @db.Date
-  passportData   String?               @map("passport_data")
-  taxNumber      String?               @map("tax_number")
-  phone          String?
-  // Член Національної спілки журналістів України — вмикає логотип НСЖУ на картці.
-  nszhuMember    Boolean               @default(false) @map("nszhu_member")
+  // All questionnaire fields (name, position, organization, passport, tax
+  // number, phone, birth date, NSZHU membership, photo reference) live only in
+  // `encryptedData` under the owner's profile key.
   // Основне посвідчення, вибране журналістом (коли їх кілька від різних редакцій).
   primaryCardId  Int?                  @map("primary_card_id")
   selfRegistered Boolean               @default(false) @map("self_registered")
@@ -195,10 +184,8 @@ model CardTemplate {
 /// override the corresponding environment variables when set.
 model AppSetting {
   id            Int      @id @default(1)
-  resendApiKey  String?  @map("resend_api_key")
-  mailFrom      String?  @map("mail_from")
-  // Uploaded NSZHU logo path, shown on cards of union members.
-  nszhuLogoPath String?  @map("nszhu_logo_path")
+  // The Resend API key, sender address and the encrypted NSZHU logo reference
+  // live only in `encryptedData` under the System KEK.
   // The NSZHU logo as a public base64 data URI. It is printed on credentials and
   // shown on the public /verify page, so it is stored in the clear (like the card
   // design) and served without a key — unlike the volatile encrypted copy.
@@ -217,26 +204,13 @@ model AppSetting {
 /// registry link. Only `name` is required; the rest are optional details.
 model Editorial {
   id                         Int                     @id @default(autoincrement())
-  name                       String
   // Public, non-secret label shown where the editorial key is unavailable —
   // e.g. a journalist reviewing a join request. The editorial name is already
-  // public (printed on every credential and the verify page); sensitive fields
-  // (director, edrpou, address, phone, email) stay encrypted.
+  // public (printed on every credential and the verify page); every other
+  // detail (full name, display names, media id, numbering, director, edrpou,
+  // website, logo reference, address, phone, email) lives only in
+  // `encryptedData` under the Editorial KEK.
   publicName                 String                  @default("") @map("public_name")
-  displayNameUk              String                  @default("") @map("display_name_uk")
-  displayNameEn              String                  @default("") @map("display_name_en")
-  // Державний ідентифікатор медіа, напр. R40-02551 (маска ***-*****).
-  mediaId                    String                  @default("") @map("media_id")
-  // Нумерація посвідчень цієї редакції: унікальний префікс + шаблон із токенів.
-  cardNumberPrefix           String                  @default("") @map("card_number_prefix")
-  cardNumberTemplate         String                  @default("{prefix}-{year}-{seq:6}") @map("card_number_template")
-  edrpou                     String                  @default("")
-  website                    String                  @default("")
-  logoPath                   String?                 @map("logo_path")
-  director                   String                  @default("")
-  email                      String                  @default("")
-  address                    String                  @default("")
-  phone                      String                  @default("")
   createdAt                  DateTime                @default(now()) @map("created_at")
   updatedAt                  DateTime                @updatedAt @map("updated_at")
   cards                      Card[]
@@ -297,14 +271,11 @@ model Card {
   journalist           Journalist @relation(fields: [journalistId], references: [id], onDelete: Cascade)
   editorialId          Int?       @map("editorial_id")
   editorial            Editorial? @relation(fields: [editorialId], references: [id], onDelete: SetNull)
-  // Position on this card, set by the issuing editorial (both languages).
-  position             String     @default("")
-  positionEn           String     @default("") @map("position_en")
-  cardNumber           String     @unique @map("card_number")
-  // Per-editorial, per-year sequence used to build cardNumber (0 for legacy).
+  // The card number, position (both languages), issue and expire dates live only
+  // in `encryptedData`; the number is additionally kept as a keyed blind index
+  // below for uniqueness and lookup.
+  // Per-editorial, per-year sequence used to build the card number (0 for legacy).
   numberSeq            Int        @default(0) @map("number_seq")
-  issueDate            DateTime?  @map("issue_date") @db.Date
-  expireDate           DateTime?  @map("expire_date") @db.Date
   status               CardStatus @default(ACTIVE)
   encryptedData        Json?      @map("encrypted_data")
   cardNumberBlindIndex String?    @unique @map("card_number_blind_index")

@@ -42,7 +42,7 @@ async function main(): Promise<void> {
   const normalizedEmail = blind.normalizeEmail(email);
   const index = blind.email(normalizedEmail);
   const user = await prisma.user.findFirst({
-    where: { OR: [{ emailBlindIndex: index }, { email: normalizedEmail }] },
+    where: { emailBlindIndex: index },
     include: { journalist: true },
   });
   if (!user) throw new Error('Account not found for that email.');
@@ -65,7 +65,6 @@ async function main(): Promise<void> {
     where: { id: user.id },
     data: {
       passwordHash: await argon2.hash(newPassword),
-      email: index,
       emailBlindIndex: index,
       emailVerifiedAt: user.emailVerifiedAt ?? new Date(),
       tokenVersion: { increment: 1 },

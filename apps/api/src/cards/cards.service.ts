@@ -17,6 +17,8 @@ import type { Card, Editorial, Journalist } from '@prisma/client';
 import { v7 as uuidv7 } from 'uuid';
 import type { JwtPayload } from '../auth/auth.types';
 import { mapCard } from '../common/card.mapper';
+import type { HydratedEditorial } from '../common/editorial.mapper';
+import type { HydratedJournalist } from '../common/journalist.mapper';
 import { PrismaService } from '../prisma/prisma.service';
 import { QrTokenService } from '../qr/qr-token.service';
 import { QrProjectionCacheService } from '../qr/qr-projection-cache.service';
@@ -29,7 +31,6 @@ import type { BlockCardDto, RenewCardDto } from './dto/card-action.dto';
 import type { CreateCardDto } from './dto/create-card.dto';
 import type { UpdateCardDto } from './dto/update-card.dto';
 
-type FullCard = Card & { journalist: Journalist; editorial: Editorial | null };
 interface CardSecret {
   cardNumber: string;
   position: string;
@@ -38,6 +39,16 @@ interface CardSecret {
   expireDate: string;
   editorialSnapshot?: Record<string, unknown>;
 }
+/** A card row as loaded from Prisma, before its payload is decrypted. */
+type RawCard = Card & { journalist: Journalist; editorial: Editorial | null };
+/** A card row hydrated with its decrypted fields and hydrated relations. */
+type FullCard = Card &
+  Omit<CardSecret, 'issueDate' | 'expireDate' | 'editorialSnapshot'> & {
+    issueDate: Date;
+    expireDate: Date;
+    journalist: HydratedJournalist;
+    editorial: HydratedEditorial | null;
+  };
 @Injectable()
 export class CardsService {
   constructor(
@@ -74,24 +85,24 @@ export class CardsService {
       card.uuid,
       {
         cardNumber: card.cardNumber,
-        expireDate: card.expireDate!.toISOString(),
-        fullName: card.journalist.fullName,
-        fullNameEn: card.journalist.fullNameEn,
+        expireDate: card.expireDate.toISOString(),
+        fullName: card.journalist.fullName ?? '',
+        fullNameEn: card.journalist.fullNameEn ?? '',
         position: card.position,
         organization: card.editorial?.displayNameUk || card.editorial?.name || '',
         photoPath: null,
         editorial: card.editorial
           ? {
               id: card.editorial.id,
-              name: card.editorial.name,
-              displayNameUk: card.editorial.displayNameUk,
-              displayNameEn: card.editorial.displayNameEn,
-              mediaId: card.editorial.mediaId,
-              website: card.editorial.website,
+              name: card.editorial.name ?? '',
+              displayNameUk: card.editorial.displayNameUk ?? '',
+              displayNameEn: card.editorial.displayNameEn ?? '',
+              mediaId: card.editorial.mediaId ?? '',
+              website: card.editorial.website ?? '',
               logoPath: null,
             }
           : null,
-        nszhuMember: card.journalist.nszhuMember,
+        nszhuMember: card.journalist.nszhuMember ?? false,
         nszhuLogoPath: null,
       },
       this.qrToken.ttlSeconds,
@@ -139,7 +150,17 @@ export class CardsService {
       if (!hydratedJournalist.fullName)
         throw new BadRequestException('Перед видачею вкажіть ПІБ журналіста');
       if (!dto.position?.trim()) throw new BadRequestException('Вкажіть посаду для посвідчення');
-      if (hydratedJournalist.selfRegistered && !isProfileComplete(hydratedJournalist))
+      if (
+        hydratedJournalist.selfRegistered &&
+        !isProfileComplete({
+          fullName: hydratedJournalist.fullName ?? '',
+          photoPath: hydratedJournalist.photoPath ?? null,
+          birthDate: hydratedJournalist.birthDate ?? null,
+          passportData: hydratedJournalist.passportData ?? null,
+          taxNumber: hydratedJournalist.taxNumber ?? null,
+          phone: hydratedJournalist.phone ?? null,
+        })
+      )
         throw new BadRequestException(
           'Анкету журналіста не заповнено повністю — посвідчення видати не можна',
         );
@@ -162,12 +183,7 @@ export class CardsService {
           editorialId,
           status: 'ACTIVE',
           numberSeq,
-          cardNumber: `encrypted:${uuid}`,
           cardNumberBlindIndex: this.blind.value('card-number', cardNumber),
-          position: '',
-          positionEn: '',
-          issueDate: null,
-          expireDate: null,
         },
         include: { journalist: true, editorial: true },
       });
@@ -327,16 +343,15 @@ export class CardsService {
     return mapCard(await this.hydrate(raw, actor, unlock), this.verifyBaseUrl);
   }
   private async hydrate(
-    raw: FullCard,
+    raw: RawCard,
     actor: JwtPayload,
     unlock?: string,
     supplied?: Buffer,
   ): Promise<FullCard> {
-    if (!raw.editorialId) return raw;
-    const key = supplied ? Buffer.from(supplied) : this.key(actor, unlock, raw.editorialId);
+    const key = supplied ? Buffer.from(supplied) : this.key(actor, unlock, raw.editorialId!);
     let profile: Buffer | undefined;
     try {
-      profile = await this.profileKeyForEditorial(raw.journalist, raw.editorialId, key);
+      profile = await this.profileKeyForEditorial(raw.journalist, raw.editorialId!, key);
       const secret = this.cardSecret(raw, profile);
       const journalist = this.decryptJournalistWithKey(raw.journalist, profile);
       const editorial = raw.editorial ? this.decryptEditorial(raw.editorial, key) : null;
@@ -347,10 +362,10 @@ export class CardsService {
     }
   }
   private mergeCard(
-    raw: FullCard,
+    raw: RawCard,
     secret: CardSecret,
-    journalist: Journalist,
-    editorial: Editorial | null,
+    journalist: HydratedJournalist,
+    editorial: HydratedEditorial | null,
   ): FullCard {
     return {
       ...raw,
@@ -359,30 +374,23 @@ export class CardsService {
       expireDate: new Date(secret.expireDate),
       journalist,
       editorial,
-    } as FullCard;
+    };
   }
-  private cardSecret(card: Card, key: Buffer): CardSecret {
-    if (!card.encryptedData)
-      return {
-        cardNumber: card.cardNumber,
-        position: card.position,
-        positionEn: card.positionEn,
-        issueDate: card.issueDate!.toISOString(),
-        expireDate: card.expireDate!.toISOString(),
-      };
+  private cardSecret(card: RawCard, key: Buffer): CardSecret {
+    if (!card.encryptedData) throw new BadRequestException('Посвідчення не має зашифрованих даних');
     return this.payloads.decrypt(
       'card',
       card.id,
-      `user:${(card as Card & { journalist?: Journalist }).journalist?.userId ?? 'unknown'}`,
+      `user:${card.journalist?.userId ?? 'unknown'}`,
       card.encryptedData,
       key,
     );
   }
-  private decryptEditorial(editorial: Editorial, key: Buffer): Editorial {
+  private decryptEditorial(editorial: Editorial, key: Buffer): HydratedEditorial {
     return editorial.encryptedData
       ? {
           ...editorial,
-          ...this.payloads.decrypt<object>(
+          ...this.payloads.decrypt<Partial<HydratedEditorial>>(
             'editorial',
             editorial.id,
             `editorial:${editorial.id}`,
@@ -434,11 +442,11 @@ export class CardsService {
     }
     throw new BadRequestException('Журналіст ще не надав редакції зашифрований доступ до профілю');
   }
-  private decryptJournalistWithKey(journalist: Journalist, profile: Buffer): Journalist {
+  private decryptJournalistWithKey(journalist: Journalist, profile: Buffer): HydratedJournalist {
     return journalist.encryptedData
       ? {
           ...journalist,
-          ...this.payloads.decrypt<object>(
+          ...this.payloads.decrypt<Partial<HydratedJournalist>>(
             'journalist',
             journalist.id,
             `user:${journalist.userId}`,
@@ -459,12 +467,7 @@ export class CardsService {
   private async assertNumberFree(number: string): Promise<void> {
     if (
       await this.prisma.card.findFirst({
-        where: {
-          OR: [
-            { cardNumberBlindIndex: this.blind.value('card-number', number) },
-            { cardNumber: number },
-          ],
-        },
+        where: { cardNumberBlindIndex: this.blind.value('card-number', number) },
       })
     )
       throw new ConflictException('A card with this number already exists');
@@ -479,11 +482,11 @@ export class CardsService {
     return card;
   }
   private async generateCardNumber(
-    editorial: Editorial,
+    editorial: HydratedEditorial,
     issueDate: Date,
   ): Promise<{ cardNumber: string; numberSeq: number }> {
     const year = issueDate.getUTCFullYear();
-    const prefix = editorial.cardNumberPrefix.trim();
+    const prefix = (editorial.cardNumberPrefix ?? '').trim();
     const top = await this.prisma.card.findFirst({
       where: { editorialId: editorial.id },
       orderBy: { numberSeq: 'desc' },
@@ -492,11 +495,11 @@ export class CardsService {
     let seq = (top?.numberSeq ?? 0) + 1;
     const render = (n: number) =>
       prefix
-        ? renderCardNumber(editorial.cardNumberTemplate, {
+        ? renderCardNumber(editorial.cardNumberTemplate ?? '{prefix}-{year}-{seq:6}', {
             prefix,
             year,
             seq: n,
-            mediaId: editorial.mediaId,
+            mediaId: editorial.mediaId ?? '',
           })
         : `PP-${year}-${String(n).padStart(6, '0')}`;
     while (
