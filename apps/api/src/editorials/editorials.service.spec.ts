@@ -27,12 +27,14 @@ describe('EditorialsService encrypted records', () => {
   const service = new EditorialsService(prisma, sessions, payloads, hierarchy, blind, files, media);
   const actor: any = { sub: 1, role: 'ADMIN', editorialId: null };
   beforeEach(() => jest.clearAllMocks());
-  it('encrypts all company details, blind-indexes numbering and scrubs legacy columns', async () => {
+  it('encrypts all company details into the payload only and blind-indexes numbering', async () => {
     prisma.editorial.findFirst.mockResolvedValue(null);
-    prisma.editorial.create.mockResolvedValue({ id: 4 });
+    prisma.editorial.create.mockResolvedValue({ id: 4, publicName: 'Secret Media' });
+    // A real Prisma row already carries publicName (set at create); include it so
+    // hydrate's public-label backfill is skipped, matching production.
     prisma.editorial.update.mockImplementation(({ data }: any) => ({
       id: 4,
-      logoPath: null,
+      publicName: 'Secret Media',
       ...data,
     }));
     payloads.decrypt.mockReturnValue({
@@ -71,14 +73,19 @@ describe('EditorialsService encrypted records', () => {
     expect(prisma.editorial.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          name: '',
-          email: '',
-          address: '',
           encryptedData: expect.any(Object),
           cardNumberPrefixBlindIndex: expect.stringMatching(/^v1:/),
         }),
       }),
     );
+    const updateData = (prisma.editorial.update as jest.Mock).mock.calls[0][0].data;
+    expect(updateData).not.toHaveProperty('name');
+    expect(updateData).not.toHaveProperty('email');
+    expect(updateData).not.toHaveProperty('address');
+    // The public label stays in the clear for join-request identification.
+    expect((prisma.editorial.create as jest.Mock).mock.calls[0][0].data).toMatchObject({
+      publicName: 'Secret Media',
+    });
     expect(result.name).toBe('Secret Media');
   });
 });

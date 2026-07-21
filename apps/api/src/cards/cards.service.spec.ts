@@ -136,15 +136,17 @@ describe('CardsService encrypted credentials', () => {
     expect(prisma.card.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          cardNumber: expect.stringMatching(/^encrypted:/),
-          position: '',
-          positionEn: '',
-          issueDate: null,
-          expireDate: null,
           cardNumberBlindIndex: expect.stringMatching(/^v1:/),
         }),
       }),
     );
+    // The number, position and dates must live only in the encrypted payload —
+    // there are no plaintext columns to write them to anymore.
+    const createArg = prisma.card.create.mock.calls[0][0].data;
+    expect(createArg).not.toHaveProperty('cardNumber');
+    expect(createArg).not.toHaveProperty('position');
+    expect(createArg).not.toHaveProperty('issueDate');
+    expect(createArg).not.toHaveProperty('expireDate');
     expect(result.position).toBe('Reporter');
   });
 });

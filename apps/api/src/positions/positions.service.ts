@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Position } from '@presspass/shared';
 
 import { PrismaService } from '../prisma/prisma.service';
@@ -28,15 +28,10 @@ export class PositionsService {
   }
 
   async remove(id: number): Promise<{ success: boolean }> {
-    const position = await this.ensureExists(id);
-    // Cards store the position as text (set at issuance); refuse to delete a
-    // catalogue entry that is still used by an issued card.
-    const used = await this.prisma.card.count({ where: { position: position.nameUk } });
-    if (used > 0) {
-      throw new ConflictException(
-        `Посаду «${position.nameUk}» використовують ${used} посвідч. — видалити не можна`,
-      );
-    }
+    await this.ensureExists(id);
+    // A card snapshots its position text (in its encrypted payload) at issuance,
+    // so deleting a catalogue entry never affects already-issued credentials and
+    // the encrypted position cannot be queried here.
     await this.prisma.position.delete({ where: { id } });
     return { success: true };
   }

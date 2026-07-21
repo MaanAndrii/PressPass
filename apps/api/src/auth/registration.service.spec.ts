@@ -61,10 +61,13 @@ describe('RegistrationService encrypted registration', () => {
       { email: 'new@example.com' },
       expect.any(Function),
     );
-    expect(prisma.user.update).toHaveBeenCalledWith({
-      where: { id: 7 },
-      data: expect.objectContaining({ email: index }),
-    });
+    expect(prisma.user.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ emailBlindIndex: index }),
+      }),
+    );
+    expect(prisma.user.create.mock.calls[0][0].data).not.toHaveProperty('email');
+    expect(JSON.stringify(prisma.user.create.mock.calls)).not.toContain('new@example.com');
     expect(JSON.stringify(prisma.user.update.mock.calls)).not.toContain('new@example.com');
     expect(sent[0]).toMatch(/^\d{6}$/);
     expect(prisma.emailVerification.upsert).toHaveBeenCalledWith(

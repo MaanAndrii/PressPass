@@ -17,7 +17,8 @@ import {
 } from '@presspass/shared';
 
 import { mapCard } from '../common/card.mapper';
-import { mapJournalist } from '../common/journalist.mapper';
+import type { EditorialSecret, HydratedEditorial } from '../common/editorial.mapper';
+import { mapJournalist, type JournalistSecret } from '../common/journalist.mapper';
 import { UserKeyMaterialService } from '../crypto/user-key-material.service';
 import { UnlockSessionService } from '../crypto/unlock-session.service';
 import { KeyHierarchyService } from '../crypto/key-hierarchy.service';
@@ -132,8 +133,9 @@ export class MeService {
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    let journalist = user.journalist;
-    let email = user.email;
+    let journalist: (NonNullable<typeof user.journalist> & Partial<JournalistSecret>) | null =
+      user.journalist;
+    let email = user.emailBlindIndex ?? '';
     if (user.encryptedData || journalist?.encryptedData) {
       // Admins unlock via the admin KEK (passphrase / key-file), not the
       // password-derived 'profile' key, so they structurally cannot decrypt
@@ -186,8 +188,10 @@ export class MeService {
       journalist: journalist ? mapJournalist(journalist) : null,
       // Media the journalist belongs to (shown in the cabinet as confirmation).
       memberships:
-        user.journalist?.memberships.map((m) => ({ id: m.editorial.id, name: m.editorial.name })) ??
-        [],
+        user.journalist?.memberships.map((m) => ({
+          id: m.editorial.id,
+          name: m.editorial.publicName,
+        })) ?? [],
     };
   }
 
@@ -235,20 +239,7 @@ export class MeService {
       );
       await this.prisma.journalist.update({
         where: { userId },
-        data: {
-          encryptedData,
-          fullName: '',
-          fullNameEn: '',
-          position: '',
-          positionEn: '',
-          organization: '',
-          organizationEn: '',
-          birthDate: null,
-          passportData: null,
-          taxNumber: null,
-          phone: null,
-          nszhuMember: false,
-        },
+        data: { encryptedData },
       });
     } finally {
       key.fill(0);
@@ -288,8 +279,6 @@ export class MeService {
       await this.prisma.journalist.update({
         where: { userId },
         data: {
-          photoPath: null,
-          nszhuMember: false,
           encryptedData: this.payloads.encrypt(
             'journalist',
             journalist.id,
@@ -403,11 +392,11 @@ export class MeService {
       include: { journalist: true, editorial: true },
     });
     const key = this.profileKey(unlockToken, userId);
-    let hydratedJournalist = journalist;
+    let hydratedJournalist: typeof journalist & Partial<JournalistSecret> = journalist;
     if (journalist.encryptedData)
       hydratedJournalist = {
         ...journalist,
-        ...this.payloads.decrypt<object>(
+        ...this.payloads.decrypt<Partial<JournalistSecret>>(
           'journalist',
           journalist.id,
           `user:${userId}`,
@@ -426,19 +415,16 @@ export class MeService {
     const primaryId = journalist.primaryCardId;
     const mapped: CardResponse[] = [];
     for (const card of cards) {
-      if (!card.encryptedData) {
-        mapped.push({ ...mapCard(card, baseUrl), isPrimary: card.id === primaryId });
-        continue;
-      }
+      if (!card.encryptedData) continue;
       const secret = this.payloads.decrypt<{
         cardNumber: string;
         position: string;
         positionEn: string;
         issueDate: string;
         expireDate: string;
-        editorialSnapshot?: object;
+        editorialSnapshot?: Partial<EditorialSecret>;
       }>('card', card.id, `user:${userId}`, card.encryptedData, key);
-      let editorial = card.editorial
+      let editorial: HydratedEditorial | null = card.editorial
         ? { ...card.editorial, ...(secret.editorialSnapshot ?? {}) }
         : null;
       const logoId = editorial?.logoPath?.match(/^\/media\/([0-9a-f-]+)$/i)?.[1];
@@ -531,7 +517,7 @@ export class MeService {
             owner.encryptedData,
             key,
           ).photoPath
-        : owner.photoPath;
+        : null;
       const fileId = privatePath?.match(/^\/media\/([0-9a-f-]+)$/i)?.[1];
       if (fileId) {
         const photo = await this.files.read(fileId, key);

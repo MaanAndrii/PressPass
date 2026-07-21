@@ -36,7 +36,7 @@ export class EditorialsService {
   async findAll(actor: JwtPayload, token?: string): Promise<Editorial[]> {
     const editorials = await this.prisma.editorial.findMany({
       where: actor.role === 'EDITORIAL_ADMIN' ? { id: actor.editorialId ?? -1 } : undefined,
-      orderBy: { name: 'asc' },
+      orderBy: { publicName: 'asc' },
     });
     return Promise.all(
       editorials.map(async (editorial) =>
@@ -49,23 +49,11 @@ export class EditorialsService {
     const cardNumberPrefix = dto.cardNumberPrefix?.trim().toUpperCase() ?? '';
     await this.assertPrefixFree(cardNumberPrefix, null);
     const adminKey = this.key(token, actor.sub, 'admin');
+    // Public label kept in the clear so a journalist can identify a join
+    // request; the editorial name is already public on credentials. Every other
+    // detail is written encrypted once the editorial key exists (below).
     const editorial = await this.prisma.editorial.create({
-      data: {
-        name: dto.name.trim(),
-        displayNameUk: dto.displayNameUk ?? '',
-        displayNameEn: dto.displayNameEn ?? '',
-        mediaId: dto.mediaId?.toUpperCase() ?? '',
-        edrpou: dto.edrpou ?? '',
-        website: dto.website ?? '',
-        director: dto.director ?? '',
-        email: dto.email ?? '',
-        address: dto.address ?? '',
-        phone: dto.phone ?? '',
-        cardNumberPrefix,
-        ...(dto.cardNumberTemplate?.trim()
-          ? { cardNumberTemplate: dto.cardNumberTemplate.trim() }
-          : {}),
-      },
+      data: { publicName: (dto.displayNameUk?.trim() || dto.name.trim()).slice(0, 120) },
     });
     const editorialKey = await this.hierarchy.provisionEditorial(editorial.id, actor.sub, adminKey);
     adminKey.fill(0);
@@ -90,22 +78,6 @@ export class EditorialsService {
           cardNumberPrefixBlindIndex: cardNumberPrefix
             ? this.blind.value('card-prefix', cardNumberPrefix)
             : null,
-          // Public label kept in the clear so a journalist can identify a join
-          // request; the editorial name is already public on credentials.
-          publicName: (dto.displayNameUk?.trim() || dto.name.trim()).slice(0, 120),
-          name: '',
-          displayNameUk: '',
-          displayNameEn: '',
-          mediaId: '',
-          cardNumberPrefix: '',
-          cardNumberTemplate: '{prefix}-{year}-{seq:6}',
-          edrpou: '',
-          website: '',
-          logoPath: null,
-          director: '',
-          email: '',
-          address: '',
-          phone: '',
         },
       });
       return mapEditorial(await this.hydrate(secured, actor, token, editorialKey));
@@ -130,15 +102,7 @@ export class EditorialsService {
     const existing = await this.ensureExists(id);
     const key = this.key(token, actor.sub, `editorial:${id}`);
     try {
-      const current = existing.encryptedData
-        ? this.payloads.decrypt<Record<string, unknown>>(
-            'editorial',
-            id,
-            `editorial:${id}`,
-            existing.encryptedData,
-            key,
-          )
-        : this.legacy(existing);
+      const current = this.decryptEditorialData(existing.encryptedData, id, key);
       const next = {
         ...current,
         ...Object.fromEntries(Object.entries(dto).filter(([, value]) => value !== undefined)),
@@ -173,12 +137,7 @@ export class EditorialsService {
       return;
     }
     const owner = await this.prisma.editorial.findFirst({
-      where: {
-        OR: [
-          { cardNumberPrefixBlindIndex: this.blind.value('card-prefix', prefix) },
-          { cardNumberPrefix: prefix },
-        ],
-      },
+      where: { cardNumberPrefixBlindIndex: this.blind.value('card-prefix', prefix) },
     });
     if (owner && owner.id !== selfId) {
       throw new ConflictException(`Префікс «${prefix}» уже використовує інша редакція`);
@@ -220,19 +179,10 @@ export class EditorialsService {
         bytes,
         ownerKey: key,
       });
-      const current = editorial.encryptedData
-        ? this.payloads.decrypt<Record<string, unknown>>(
-            'editorial',
-            id,
-            `editorial:${id}`,
-            editorial.encryptedData,
-            key,
-          )
-        : this.legacy(editorial);
+      const current = this.decryptEditorialData(editorial.encryptedData, id, key);
       const updated = await this.prisma.editorial.update({
         where: { id },
         data: {
-          logoPath: null,
           encryptedData: this.payloads.encrypt(
             'editorial',
             id,
@@ -332,8 +282,19 @@ export class EditorialsService {
       cardNumberTemplate: dto.cardNumberTemplate?.trim() || '{prefix}-{year}-{seq:6}',
     };
   }
-  private legacy(editorial: Record<string, unknown>): Record<string, unknown> {
-    const { encryptedData: _encryptedData, ...data } = editorial;
-    return data;
+  /** Decrypts an editorial's stored details; every field lives in the payload. */
+  private decryptEditorialData(
+    encryptedData: unknown,
+    id: number,
+    key: Buffer,
+  ): Record<string, unknown> {
+    if (!encryptedData) return {};
+    return this.payloads.decrypt<Record<string, unknown>>(
+      'editorial',
+      id,
+      `editorial:${id}`,
+      encryptedData,
+      key,
+    );
   }
 }

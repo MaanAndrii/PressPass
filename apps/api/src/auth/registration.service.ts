@@ -45,7 +45,7 @@ export class RegistrationService {
     const passwordHash = await argon2.hash(password);
 
     const existing = await this.prisma.user.findFirst({
-      where: { OR: [{ emailBlindIndex: this.blindIndexes.email(email) }, { email }] },
+      where: { emailBlindIndex: this.blindIndexes.email(email) },
     });
     if (existing?.emailVerifiedAt) {
       // Точніше повідомлення: адмінський акаунт не показується у списку
@@ -65,7 +65,6 @@ export class RegistrationService {
       await this.prisma.user.update({
         where: { id: existing.id },
         data: {
-          email: this.blindIndexes.email(email),
           emailBlindIndex: this.blindIndexes.email(email),
           passwordHash,
           ...keyMaterial,
@@ -78,7 +77,6 @@ export class RegistrationService {
     const user = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: {
-          email: this.blindIndexes.email(email),
           emailBlindIndex: this.blindIndexes.email(email),
           passwordHash,
           role: 'JOURNALIST',
@@ -90,7 +88,7 @@ export class RegistrationService {
       );
       await tx.user.update({
         where: { id: created.id },
-        data: { ...keyMaterial, email: this.blindIndexes.email(email) },
+        data: { ...keyMaterial },
       });
       return created;
     });
@@ -101,7 +99,7 @@ export class RegistrationService {
   async verifyEmail(rawEmail: string, code: string): Promise<LoginResponse> {
     const email = this.blindIndexes.normalizeEmail(rawEmail);
     const user = await this.prisma.user.findFirst({
-      where: { OR: [{ emailBlindIndex: this.blindIndexes.email(email) }, { email }] },
+      where: { emailBlindIndex: this.blindIndexes.email(email) },
       include: { verification: true, journalist: true },
     });
     if (!user) {
@@ -133,7 +131,7 @@ export class RegistrationService {
 
     const payload: JwtPayload = {
       sub: verified.id,
-      email: verified.email,
+      email: verified.emailBlindIndex ?? '',
       role: verified.role as Role,
       editorialId: verified.editorialId,
       tokenVersion: verified.tokenVersion,
@@ -142,7 +140,7 @@ export class RegistrationService {
       accessToken: await this.jwtService.signAsync(payload),
       user: {
         id: verified.id,
-        email: verified.email,
+        email: verified.emailBlindIndex ?? '',
         role: verified.role as Role,
         emailVerified: true,
         editorialId: verified.editorialId,
@@ -156,7 +154,7 @@ export class RegistrationService {
   async resendCode(rawEmail: string): Promise<RegisterResponse> {
     const email = this.blindIndexes.normalizeEmail(rawEmail);
     const user = await this.prisma.user.findFirst({
-      where: { OR: [{ emailBlindIndex: this.blindIndexes.email(email) }, { email }] },
+      where: { emailBlindIndex: this.blindIndexes.email(email) },
     });
     if (!user) {
       throw new NotFoundException('Користувача не знайдено');

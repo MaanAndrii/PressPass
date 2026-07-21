@@ -177,9 +177,9 @@ export class SettingsService {
     if (row?.encryptedData)
       return this.payloads.decrypt('settings', 1, 'system:1', row.encryptedData, key);
     return {
-      resendApiKey: row?.resendApiKey || null,
-      mailFrom: row?.mailFrom || this.config.get('MAIL_FROM', 'PressPass <onboarding@resend.dev>'),
-      nszhuLogoPath: row?.nszhuLogoPath ?? null,
+      resendApiKey: null,
+      mailFrom: this.config.get('MAIL_FROM', 'PressPass <onboarding@resend.dev>'),
+      nszhuLogoPath: null,
       googleClientId: null,
       googleClientSecret: null,
     };
@@ -189,9 +189,6 @@ export class SettingsService {
       where: { id: 1 },
       update: {
         encryptedData: this.payloads.encrypt('settings', 1, 'system:1', data, key),
-        resendApiKey: null,
-        mailFrom: null,
-        nszhuLogoPath: null,
       },
       create: { id: 1, encryptedData: this.payloads.encrypt('settings', 1, 'system:1', data, key) },
     });

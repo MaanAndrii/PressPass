@@ -38,7 +38,7 @@ export class AdminsService {
     const admins = await this.prisma.user.findMany({
       where: { role: { in: [...ADMIN_ROLES] } },
       orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
-      include: { editorial: { select: { name: true } } },
+      include: { editorial: { select: { publicName: true } } },
     });
     // A Superadmin holds the System KEK, so their session can decrypt every
     // admin's email via the system read key. Without it, the hashed column stays.
@@ -53,7 +53,7 @@ export class AdminsService {
     try {
       return await Promise.all(
         admins.map(async (a) => {
-          let email = a.email;
+          let email = a.emailBlindIndex ?? '';
           if (systemKey && a.encryptedData && a.systemKeyEnvelope) {
             try {
               const profile = await this.hierarchy.unsealProfileForSystem(
@@ -79,7 +79,7 @@ export class AdminsService {
             emailVerified: Boolean(a.emailVerifiedAt),
             role: a.role,
             editorialId: a.editorialId,
-            editorialName: a.editorial?.name ?? null,
+            editorialName: a.editorial?.publicName ?? null,
             createdAt: a.createdAt.toISOString(),
           };
         }),
@@ -97,7 +97,7 @@ export class AdminsService {
   ): Promise<AdminAccount> {
     const email = this.blindIndexes.normalizeEmail(dto.email);
     const existing = await this.prisma.user.findFirst({
-      where: { OR: [{ emailBlindIndex: this.blindIndexes.email(email) }, { email }] },
+      where: { emailBlindIndex: this.blindIndexes.email(email) },
     });
     if (existing) {
       throw new ConflictException('A user with this email already exists');
@@ -113,14 +113,13 @@ export class AdminsService {
       if (!editorial) {
         throw new NotFoundException('Editorial not found');
       }
-      editorialName = editorial.name;
+      editorialName = editorial.publicName;
     }
 
     const passwordHash = await argon2.hash(dto.password);
     const admin = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: {
-          email: this.blindIndexes.email(email),
           emailBlindIndex: this.blindIndexes.email(email),
           passwordHash,
           role,
@@ -144,7 +143,6 @@ export class AdminsService {
         where: { id: created.id },
         data: {
           ...keyMaterial,
-          email: this.blindIndexes.email(email),
           ...(systemSeal ? { systemKeyEnvelope: systemSeal } : {}),
         },
       });
