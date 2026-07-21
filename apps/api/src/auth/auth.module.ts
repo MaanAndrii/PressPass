@@ -20,7 +20,9 @@ import { RegistrationService } from './registration.service';
         if (!secret) {
           throw new Error('JWT_SECRET environment variable is required');
         }
-        const expiresIn = config.get<string>('JWT_EXPIRES_IN', '1d');
+        // Short-lived access token: the client silently rotates it via the
+        // refresh cookie, so a leaked token is only briefly useful.
+        const expiresIn = config.get<string>('JWT_EXPIRES_IN', '15m');
         return {
           secret,
           signOptions: {

@@ -99,11 +99,8 @@ async function main(): Promise<void> {
     })
   )
     failures.push('settings contain plaintext fields');
-  for (const template of await prisma.cardTemplate.findMany({
-    select: { id: true, data: true, encryptedData: true },
-  }))
-    if (!template.encryptedData || JSON.stringify(template.data) !== '{}')
-      failures.push(`card template ${template.id} contains plaintext or is not encrypted`);
+  // Card designs are PUBLIC (printed on credentials, shown on /verify), so they
+  // are intentionally stored as plaintext `data` and must NOT be encrypted.
   for (const item of await prisma.emailVerification.findMany({ select: { id: true, code: true } }))
     if (!/^v1:[A-Za-z0-9_-]{43}$/.test(item.code))
       failures.push(`email verification ${item.id} is plaintext`);

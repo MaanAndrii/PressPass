@@ -232,7 +232,10 @@ PORT=3001
 JWT_SECRET=${JWT_SECRET}
 DATA_KEY_SECRET=${DATA_KEY_SECRET}
 LOOKUP_KEY=${LOOKUP_KEY}
-JWT_EXPIRES_IN=1d
+# Short-lived access token; the client rotates it via the refresh cookie.
+JWT_EXPIRES_IN=15m
+# How long a device stays signed in without re-entering the password (sliding).
+REFRESH_TOKEN_DAYS=7
 CORS_ORIGIN=${BASE_URL}
 VERIFY_BASE_URL=${BASE_URL}
 UPLOADS_DIR=${APP_DIR}/uploads
