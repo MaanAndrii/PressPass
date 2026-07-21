@@ -50,23 +50,17 @@ async function main(): Promise<void> {
   }
 
   console.log('\n--- account lookup ---');
-  // Same lookup as AuthService.login.
+  // Same lookup as AuthService.login: only the keyed blind index remains.
   const byLogin = computedIndex
-    ? await prisma.user.findFirst({
-        where: { OR: [{ emailBlindIndex: computedIndex }, { email: email.toLowerCase().trim() }] },
-      })
-    : await prisma.user.findFirst({ where: { email: email.toLowerCase().trim() } });
+    ? await prisma.user.findFirst({ where: { emailBlindIndex: computedIndex } })
+    : null;
   // Also fetch the first ADMIN regardless of index, to detect a key mismatch.
   const adminRow = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
 
   console.log(`found by login lookup: ${mark(Boolean(byLogin))}`);
   if (adminRow) {
-    const storedIsHashed = !adminRow.email.includes('@');
     const indexMatches = computedIndex ? adminRow.emailBlindIndex === computedIndex : false;
     console.log(`first ADMIN id:        ${adminRow.id}`);
-    console.log(
-      `stored email column:   ${storedIsHashed ? 'hashed (v1:...)' : 'PLAINTEXT with @'}`,
-    );
     console.log(`emailBlindIndex set:   ${mark(Boolean(adminRow.emailBlindIndex))}`);
     console.log(
       `index matches account: ${mark(indexMatches)}` +
