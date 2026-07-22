@@ -17,8 +17,13 @@ export class VerifyService {
       // The id is unknown/expired (QR codes are short-lived) or none was given.
       return { valid: false, qrStatus: token ? 'EXPIRED' : 'MISSING' };
     }
-    const card = await this.prisma.card.findUnique({ where: { uuid }, select: { status: true } });
+    const card = await this.prisma.card.findUnique({
+      where: { uuid },
+      select: { status: true, journalist: { select: { user: { select: { deletedAt: true } } } } },
+    });
     if (!card) throw new NotFoundException('Card not found');
+    // A credential of a soft-deleted (pending-purge) journalist must not verify.
+    if (card.journalist.user.deletedAt) return { valid: false, qrStatus: 'INVALID' };
     if (!projection.expireDate) return { valid: false, qrStatus: 'INVALID' };
     const status = effectiveCardStatus(card.status, projection.expireDate);
     // The NSZHU logo is public branding, resolved here so the projection cache

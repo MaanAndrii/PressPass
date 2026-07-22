@@ -42,6 +42,16 @@ export class JournalistsController {
     return this.journalistsService.findAll(user, unlock);
   }
 
+  @Get('deleted')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'List soft-deleted journalists still within the restore window' })
+  findDeleted(
+    @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
+  ): Promise<AdminJournalist[]> {
+    return this.journalistsService.findDeleted(user, unlock);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create a journalist together with a login account' })
   create(
@@ -83,11 +93,34 @@ export class JournalistsController {
     return this.journalistsService.detach(id, user, unlock);
   }
 
+  @Post(':id/membership/restore')
+  @ApiOperation({
+    summary: 'Undo a recent removal of a journalist from the editorial (grace window)',
+  })
+  restoreMembership(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
+  ): Promise<AdminJournalist> {
+    return this.journalistsService.restoreMembership(id, user, unlock);
+  }
+
   @Delete(':id')
   @Roles('ADMIN')
-  @ApiOperation({ summary: 'Delete a journalist, their account and cards (system admin only)' })
+  @ApiOperation({ summary: 'Soft-delete a journalist account and cards (system admin only)' })
   remove(@Param('id', ParseIntPipe) id: number): Promise<{ success: boolean }> {
     return this.journalistsService.remove(id);
+  }
+
+  @Post(':id/restore')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Restore a soft-deleted journalist within the grace window' })
+  restore(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
+  ): Promise<AdminJournalist> {
+    return this.journalistsService.restore(id, user, unlock);
   }
 
   @Post(':id/photo')

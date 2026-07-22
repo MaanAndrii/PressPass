@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { Role } from '@presspass/shared';
 
 import { generateJournalistPublicId } from '../common/public-id';
+import { isWithinGraceWindow } from '../common/soft-delete';
 import { BlindIndexService } from '../crypto/blind-index.service';
 import { KeyHierarchyService } from '../crypto/key-hierarchy.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -108,6 +109,13 @@ export class GoogleAuthService {
     }
 
     const user = await this.findOrCreateUser(payload);
+    // Soft-deleted account: a Google sign-in within the grace window restores it,
+    // otherwise it is treated as gone (the purge job removes it for good).
+    if (user.deletedAt) {
+      if (!isWithinGraceWindow(user.deletedAt)) throw new UnauthorizedException('Account removed');
+      await this.prisma.user.update({ where: { id: user.id }, data: { deletedAt: null } });
+      user.deletedAt = null;
+    }
     // A Superadmin has no password-derived key when signing in via Google, so
     // seal their verified email to the system read public key (no unlock needed
     // to write it) — /me then shows it via the system key they hold once
