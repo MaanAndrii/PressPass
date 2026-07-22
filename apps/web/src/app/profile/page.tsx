@@ -121,7 +121,12 @@ export default function ProfilePage() {
   const photo = photoUrl(journalist?.photoPath ?? null);
 
   async function handleDeleteAccount() {
-    if (!window.confirm('Видалити свій акаунт і анкету? Дію не можна скасувати.')) return;
+    if (
+      !window.confirm(
+        'Видалити свій акаунт і анкету? Дані приховаються, але зберігатимуться 7 днів: якщо ви знову увійдете протягом цього часу, акаунт відновиться повністю. Після 7 днів усе буде стерто остаточно.',
+      )
+    )
+      return;
     setError(null);
     try {
       await api('/me/account', { method: 'DELETE' });

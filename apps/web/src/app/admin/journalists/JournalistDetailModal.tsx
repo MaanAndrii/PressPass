@@ -18,11 +18,14 @@ export function JournalistDetailModal({
   onClose,
   onEdit,
   onChanged,
+  onRemoved,
 }: {
   journalist: AdminJournalist | null;
   onClose: () => void;
   onEdit: (j: AdminJournalist) => void;
   onChanged: () => void;
+  /** Called after a (soft) removal so the page can offer a quick undo. */
+  onRemoved?: (j: AdminJournalist, kind: 'membership' | 'account') => void;
 }) {
   const isSuperAdmin = getStoredUser()?.role === 'ADMIN';
   const [cards, setCards] = useState<CardResponse[]>([]);
@@ -102,11 +105,18 @@ export function JournalistDetailModal({
               variant="secondary"
               disabled={busy}
               onClick={() => {
-                if (window.confirm('Прибрати журналіста зі своєї редакції? Акаунт залишиться.')) {
+                if (
+                  window.confirm(
+                    'Прибрати журналіста зі своєї редакції? Спершу мають бути скасовані (заблоковані) його активні посвідчення. Дію можна відмінити.',
+                  )
+                ) {
                   void action(
                     () =>
                       api(`/admin/journalists/${j.id}/membership`, { method: 'DELETE' }).then(
-                        onClose,
+                        () => {
+                          onRemoved?.(j, 'membership');
+                          onClose();
+                        },
                       ),
                     'Не вдалося прибрати з редакції',
                   );
@@ -121,9 +131,17 @@ export function JournalistDetailModal({
               variant="danger"
               disabled={busy}
               onClick={() => {
-                if (window.confirm('Видалити журналіста разом з акаунтом і посвідченнями?')) {
+                if (
+                  window.confirm(
+                    'Видалити журналіста? Акаунт і посвідчення приховуються та зберігаються 7 днів — за цей час видалення можна відмінити, потім усе стирається остаточно.',
+                  )
+                ) {
                   void action(
-                    () => api(`/admin/journalists/${j.id}`, { method: 'DELETE' }).then(onClose),
+                    () =>
+                      api(`/admin/journalists/${j.id}`, { method: 'DELETE' }).then(() => {
+                        onRemoved?.(j, 'account');
+                        onClose();
+                      }),
                     'Помилка видалення',
                   );
                 }

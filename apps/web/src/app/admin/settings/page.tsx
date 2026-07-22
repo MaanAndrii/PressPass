@@ -4,7 +4,7 @@ import { Button, Field } from '@presspass/ui';
 import type { AppSettings } from '@presspass/shared';
 import { type FormEvent, useEffect, useState } from 'react';
 
-import { api, ApiError, apiUpload } from '@/lib/api';
+import { api, ApiError, apiDownload, apiUpload } from '@/lib/api';
 import { photoUrl } from '@/lib/config';
 
 export default function AdminSettingsPage() {
@@ -17,6 +17,9 @@ export default function AdminSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [backupPassphrase, setBackupPassphrase] = useState('');
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupError, setBackupError] = useState<string | null>(null);
 
   useEffect(() => {
     void api<AppSettings>('/admin/settings')
@@ -157,11 +160,55 @@ export default function AdminSettingsPage() {
     }
   }
 
+  async function handleBackup(event: FormEvent) {
+    event.preventDefault();
+    setBackupError(null);
+    if (backupPassphrase.length < 12) {
+      setBackupError('Пароль бекапу — щонайменше 12 символів.');
+      return;
+    }
+    setBackupBusy(true);
+    try {
+      await apiDownload('/admin/backup', { passphrase: backupPassphrase });
+      setBackupPassphrase('');
+    } catch (err) {
+      setBackupError(err instanceof ApiError ? err.message : 'Не вдалося створити бекап');
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
   const nszhuLogo = photoUrl(settings?.nszhuLogoPath ?? null);
 
   return (
     <div className="max-w-xl space-y-6">
       <h1 className="text-xl font-bold">Налаштування</h1>
+
+      <form onSubmit={handleBackup} className="space-y-4 rounded-xl bg-white p-5 shadow">
+        <h2 className="font-semibold">Резервна копія</h2>
+        <p className="text-sm text-slate-500">
+          Повний бекап (база даних + зашифровані файли + серверні секрети) одним файлом,
+          зашифрованим паролем через age. Відновлення — скриптом{' '}
+          <code className="rounded bg-slate-100 px-1">deploy/restore.sh</code> на сервері.
+        </p>
+        <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+          Запам&apos;ятайте пароль і зберігайте його <strong>окремо</strong> від файлу бекапу — без
+          нього відновлення неможливе. Персональні дані всередині лишаються зашифрованими й без
+          пасфрази адміністратора не розкриваються.
+        </div>
+        <Field
+          label="Пароль бекапу (мін. 12 символів)"
+          type="password"
+          placeholder="надійний пароль"
+          autoComplete="new-password"
+          value={backupPassphrase}
+          onChange={(e) => setBackupPassphrase(e.target.value)}
+        />
+        {backupError && <p className="text-sm text-red-600">{backupError}</p>}
+        <Button type="submit" disabled={backupBusy}>
+          {backupBusy ? 'Формування…' : 'Створити й завантажити бекап'}
+        </Button>
+      </form>
 
       <section className="space-y-3 rounded-xl bg-white p-5 shadow">
         <h2 className="font-semibold">Логотип НСЖУ</h2>
