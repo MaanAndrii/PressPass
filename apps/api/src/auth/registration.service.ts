@@ -47,6 +47,13 @@ export class RegistrationService {
     const existing = await this.prisma.user.findFirst({
       where: { emailBlindIndex: this.blindIndexes.email(email) },
     });
+    // A soft-deleted account keeps its email reserved during the grace window;
+    // it is brought back by logging in, not by re-registering over it.
+    if (existing?.deletedAt) {
+      throw new ConflictException(
+        'Цей email нещодавно був видалений і тимчасово зарезервований — увійдіть, щоб відновити акаунт',
+      );
+    }
     if (existing?.emailVerifiedAt) {
       // Точніше повідомлення: адмінський акаунт не показується у списку
       // журналістів, тож інакше «користувача не видно» збиває з пантелику.

@@ -36,7 +36,7 @@ export class AdminsService {
 
   async findAll(actor?: JwtPayload, unlock?: string): Promise<AdminAccount[]> {
     const admins = await this.prisma.user.findMany({
-      where: { role: { in: [...ADMIN_ROLES] } },
+      where: { role: { in: [...ADMIN_ROLES] }, deletedAt: null },
       orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
       include: { editorial: { select: { publicName: true } } },
     });

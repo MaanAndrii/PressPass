@@ -52,6 +52,10 @@ model User {
   adminEmailEnvelope  Json?                   @map("admin_email_envelope")
   tokenVersion        Int                     @default(0) @map("token_version")
   role                Role                    @default(JOURNALIST)
+  // Soft-delete tombstone. When set, the account is hidden everywhere and is
+  // purged for good after the grace window; a login within the window restores
+  // it (deletedAt → NULL). NULL means the account is live.
+  deletedAt           DateTime?               @map("deleted_at")
   emailVerifiedAt     DateTime?               @map("email_verified_at")
   googleId            String?                 @unique @map("google_id")
   googleIdBlindIndex  String?                 @unique @map("google_id_blind_index")
@@ -236,6 +240,10 @@ model EditorialMembership {
   editorial    Editorial  @relation(fields: [editorialId], references: [id], onDelete: Cascade)
   journalistId Int        @map("journalist_id")
   journalist   Journalist @relation(fields: [journalistId], references: [id], onDelete: Cascade)
+  // Soft-delete tombstone for an editorial admin removing a journalist from
+  // their own media. The membership is hidden while set and purged after the
+  // grace window; restoring it re-adds the journalist. NULL means active.
+  deletedAt    DateTime?  @map("deleted_at")
   createdAt    DateTime   @default(now()) @map("created_at")
 
   @@unique([editorialId, journalistId])

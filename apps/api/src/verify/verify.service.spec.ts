@@ -25,7 +25,10 @@ describe('VerifyService short-lived projection', () => {
       fullName: 'Signed Name',
       photoPath: '/public-media/opaque',
     });
-    prisma.card.findUnique.mockResolvedValue({ status: 'ACTIVE' });
+    prisma.card.findUnique.mockResolvedValue({
+      status: 'ACTIVE',
+      journalist: { user: { deletedAt: null } },
+    });
     await expect(service.verify('uuid', 'token')).resolves.toMatchObject({
       valid: true,
       qrStatus: 'VALID',
@@ -34,12 +37,15 @@ describe('VerifyService short-lived projection', () => {
     });
     expect(prisma.card.findUnique).toHaveBeenCalledWith({
       where: { uuid: 'uuid' },
-      select: { status: true },
+      select: { status: true, journalist: { select: { user: { select: { deletedAt: true } } } } },
     });
   });
   it('honors immediate revocation without decrypting card data', async () => {
     cache.get.mockReturnValue({ expireDate: '2099-01-01' });
-    prisma.card.findUnique.mockResolvedValue({ status: 'BLOCKED' });
+    prisma.card.findUnique.mockResolvedValue({
+      status: 'BLOCKED',
+      journalist: { user: { deletedAt: null } },
+    });
     await expect(service.verify('uuid', 'token')).resolves.toMatchObject({
       valid: false,
       status: 'BLOCKED',
@@ -47,7 +53,10 @@ describe('VerifyService short-lived projection', () => {
   });
   it('rejects a projection without an expiry', async () => {
     cache.get.mockReturnValue({});
-    prisma.card.findUnique.mockResolvedValue({ status: 'ACTIVE' });
+    prisma.card.findUnique.mockResolvedValue({
+      status: 'ACTIVE',
+      journalist: { user: { deletedAt: null } },
+    });
     await expect(service.verify('uuid', 'token')).resolves.toEqual({
       valid: false,
       qrStatus: 'INVALID',
@@ -57,5 +66,16 @@ describe('VerifyService short-lived projection', () => {
     cache.get.mockReturnValue({ expireDate: '2099-01-01' });
     prisma.card.findUnique.mockResolvedValue(null);
     await expect(service.verify('uuid', 'token')).rejects.toThrow(NotFoundException);
+  });
+  it('rejects a credential whose journalist is soft-deleted', async () => {
+    cache.get.mockReturnValue({ expireDate: '2099-01-01' });
+    prisma.card.findUnique.mockResolvedValue({
+      status: 'ACTIVE',
+      journalist: { user: { deletedAt: new Date() } },
+    });
+    await expect(service.verify('uuid', 'token')).resolves.toEqual({
+      valid: false,
+      qrStatus: 'INVALID',
+    });
   });
 });

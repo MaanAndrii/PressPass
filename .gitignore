@@ -31,3 +31,4 @@ coverage/
 # Logs
 *.log
 npm-debug.log*
+uploads-e2e/

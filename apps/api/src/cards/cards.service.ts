@@ -118,7 +118,10 @@ export class CardsService {
     unlock?: string,
   ): Promise<CardResponse[]> {
     const cards = await this.prisma.card.findMany({
-      where: actor.role === 'EDITORIAL_ADMIN' ? { editorialId: actor.editorialId } : undefined,
+      where: {
+        journalist: { user: { deletedAt: null } },
+        ...(actor.role === 'EDITORIAL_ADMIN' ? { editorialId: actor.editorialId } : {}),
+      },
       include: { journalist: true, editorial: true },
       orderBy: { id: 'asc' },
     });

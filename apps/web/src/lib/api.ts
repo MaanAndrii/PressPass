@@ -101,3 +101,46 @@ export async function apiUpload<T>(path: string, field: string, file: File): Pro
   }
   return (await response.json()) as T;
 }
+
+/**
+ * POSTs JSON and downloads the binary response as a file (e.g. an encrypted
+ * backup). The whole body is buffered, so this is for admin-scale artefacts.
+ */
+export async function apiDownload(path: string, body: unknown): Promise<void> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const unlock = getUnlockToken();
+  if (unlock) headers['X-Unlock-Token'] = unlock;
+
+  const response = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers,
+    credentials: 'include',
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    let message = `Request failed (${response.status})`;
+    try {
+      const data = (await response.json()) as { message?: string | string[] };
+      if (data.message)
+        message = Array.isArray(data.message) ? data.message.join(', ') : data.message;
+    } catch {
+      // Binary/empty error body — keep the generic message.
+    }
+    throw new ApiError(response.status, message);
+  }
+
+  const disposition = response.headers.get('Content-Disposition') ?? '';
+  const match = /filename="?([^"]+)"?/.exec(disposition);
+  const filename = match?.[1] ?? 'download';
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}

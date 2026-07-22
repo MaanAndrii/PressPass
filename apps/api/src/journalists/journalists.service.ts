@@ -40,7 +40,7 @@ type JournalistWithUser = Journalist & {
 const ADMIN_INCLUDE = {
   user: true,
   _count: { select: { cards: true } },
-  memberships: { include: { editorial: true } },
+  memberships: { where: { deletedAt: null }, include: { editorial: true } },
 } as const;
 
 @Injectable()
@@ -66,8 +66,11 @@ export class JournalistsService {
     const journalists = await this.prisma.journalist.findMany({
       where:
         actor.role === 'EDITORIAL_ADMIN'
-          ? { memberships: { some: { editorialId: actor.editorialId ?? -1 } } }
-          : undefined,
+          ? {
+              user: { deletedAt: null },
+              memberships: { some: { editorialId: actor.editorialId ?? -1, deletedAt: null } },
+            }
+          : { user: { deletedAt: null } },
       include: ADMIN_INCLUDE,
       orderBy: { id: 'asc' },
     });
@@ -240,18 +243,30 @@ export class JournalistsService {
     }
     const found = await this.prisma.journalist.findUnique({
       where: { publicId: normalizePublicId(dto.publicId) },
-      select: { id: true },
+      select: { id: true, user: { select: { deletedAt: true } } },
     });
-    if (!found) {
+    if (!found || found.user.deletedAt) {
       throw new NotFoundException('Журналіста з таким ID не знайдено');
     }
     const journalist = await this.loadForAdmin(found.id);
 
-    const alreadyMember = await this.prisma.editorialMembership.findUnique({
+    const membership = await this.prisma.editorialMembership.findUnique({
       where: { editorialId_journalistId: { editorialId, journalistId: journalist.id } },
     });
-    if (alreadyMember) {
+    if (membership && !membership.deletedAt) {
       return { status: 'attached', journalist: await this.safeAdminDto(journalist, actor, unlock) };
+    }
+    // A membership removed within the grace window is reactivated instead of
+    // creating a duplicate (the unique constraint would otherwise reject it).
+    if (membership?.deletedAt) {
+      await this.prisma.editorialMembership.update({
+        where: { id: membership.id },
+        data: { deletedAt: null },
+      });
+      return {
+        status: 'attached',
+        journalist: await this.safeAdminDto(await this.loadForAdmin(journalist.id), actor, unlock),
+      };
     }
 
     // A Superadmin attaches directly; an editorial admin needs the journalist to
@@ -323,27 +338,60 @@ export class JournalistsService {
   }
 
   /** Removes a journalist from the editorial admin's own media (not the account). */
+  /** Editorial admin soft-removes a journalist from their OWN media. The
+   *  credentials must be cancelled first (a credential must not outlive the
+   *  membership), and the removal is undoable within the grace window via
+   *  {@link restoreMembership}. The editorial key grant is kept meanwhile so an
+   *  undo is lossless; the purge revokes it when the window elapses. */
   async detach(id: number, actor: JwtPayload, unlock?: string): Promise<AdminJournalist> {
     if (actor.role !== 'EDITORIAL_ADMIN' || !actor.editorialId) {
       throw new ForbiddenException('Прибрати з редакції може лише редакційний адміністратор');
     }
-    // A credential must not outlive the membership: block this editorial's still
-    // active cards for the journalist before removing access.
-    await this.prisma.card.updateMany({
-      where: { journalistId: id, editorialId: actor.editorialId, status: 'ACTIVE' },
-      data: { status: 'BLOCKED' },
+    const membership = await this.prisma.editorialMembership.findUnique({
+      where: { editorialId_journalistId: { editorialId: actor.editorialId, journalistId: id } },
     });
-    await this.prisma.editorialMembership.deleteMany({
-      where: { journalistId: id, editorialId: actor.editorialId },
+    if (!membership || membership.deletedAt) {
+      throw new NotFoundException('Журналіст не є членом вашої редакції');
+    }
+    const activeCards = await this.prisma.card.count({
+      where: { journalistId: id, editorialId: actor.editorialId, status: 'ACTIVE' },
+    });
+    if (activeCards > 0) {
+      throw new ConflictException(
+        'Спершу скасуйте (заблокуйте) активні посвідчення цього журналіста, тоді прибирайте його з редакції',
+      );
+    }
+    await this.prisma.editorialMembership.update({
+      where: { id: membership.id },
+      data: { deletedAt: new Date() },
     });
     await this.prisma.joinRequest.deleteMany({
       where: { journalistId: id, editorialId: actor.editorialId },
     });
-    const journalist = await this.prisma.journalist.findUnique({ where: { id } });
-    if (journalist) {
-      await this.editorialGrants.revoke(journalist.userId, actor.editorialId);
+    // Access is gone from the list now — return a redacted row.
+    return this.safeAdminDto(await this.loadForAdmin(id), actor, unlock);
+  }
+
+  /** Editorial admin undoes a detach within the grace window: the membership is
+   *  reactivated (the grant was kept, so decryption access returns as well). */
+  async restoreMembership(
+    id: number,
+    actor: JwtPayload,
+    unlock?: string,
+  ): Promise<AdminJournalist> {
+    if (actor.role !== 'EDITORIAL_ADMIN' || !actor.editorialId) {
+      throw new ForbiddenException('Відновити членство може лише редакційний адміністратор');
     }
-    // Access is gone now, so decryption will fail — return a redacted row.
+    const membership = await this.prisma.editorialMembership.findUnique({
+      where: { editorialId_journalistId: { editorialId: actor.editorialId, journalistId: id } },
+    });
+    if (!membership || !membership.deletedAt) {
+      throw new NotFoundException('Немає нещодавно прибраного членства для відновлення');
+    }
+    await this.prisma.editorialMembership.update({
+      where: { id: membership.id },
+      data: { deletedAt: null },
+    });
     return this.safeAdminDto(await this.loadForAdmin(id), actor, unlock);
   }
 
@@ -410,15 +458,44 @@ export class JournalistsService {
     }
   }
 
-  /** Deletes the journalist together with the login account and all cards (cascade). */
+  /** Superadmin soft-delete of the whole journalist (account, cards and
+   *  memberships): hidden immediately, restorable within the grace window, and
+   *  purged for good afterwards (which cancels the cards and frees the email). */
   async remove(id: number): Promise<{ success: boolean }> {
     const journalist = await this.prisma.journalist.findUnique({ where: { id } });
     if (!journalist) {
       throw new NotFoundException('Journalist not found');
     }
-    await this.files.removeOwner('user', String(journalist.userId));
-    await this.prisma.user.delete({ where: { id: journalist.userId } });
+    this.sessions.revokeUser(journalist.userId);
+    await this.prisma.user.update({
+      where: { id: journalist.userId },
+      data: { deletedAt: new Date(), tokenVersion: { increment: 1 } },
+    });
     return { success: true };
+  }
+
+  /** Superadmin restore of a soft-deleted journalist, in whatever configuration
+   *  it had (memberships and cards are untouched by the soft delete). */
+  async restore(id: number, actor: JwtPayload, unlock?: string): Promise<AdminJournalist> {
+    const journalist = await this.prisma.journalist.findUnique({ where: { id } });
+    if (!journalist) throw new NotFoundException('Journalist not found');
+    await this.prisma.user.update({ where: { id: journalist.userId }, data: { deletedAt: null } });
+    return this.safeAdminDto(await this.loadForAdmin(id), actor, unlock);
+  }
+
+  /** Lists soft-deleted journalists still inside the grace window (Superadmin
+   *  "trash"), so they can be restored before the purge removes them. */
+  async findDeleted(actor: JwtPayload, unlock?: string): Promise<AdminJournalist[]> {
+    const journalists = await this.prisma.journalist.findMany({
+      where: { user: { deletedAt: { not: null } } },
+      include: ADMIN_INCLUDE,
+      orderBy: { id: 'asc' },
+    });
+    return Promise.all(
+      journalists.map((journalist) =>
+        this.toAdminDto(journalist, actor, unlock).catch(() => this.redactedDto(journalist)),
+      ),
+    );
   }
 
   /** Encrypts an administrator-uploaded photo with the profile DEK. */

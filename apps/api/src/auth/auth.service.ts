@@ -4,6 +4,7 @@ import type { LoginResponse, Role } from '@presspass/shared';
 import * as argon2 from 'argon2';
 
 import { mapJournalist } from '../common/journalist.mapper';
+import { isWithinGraceWindow } from '../common/soft-delete';
 import { UserKeyMaterialService } from '../crypto/user-key-material.service';
 import { UnlockSessionService } from '../crypto/unlock-session.service';
 import { BlindIndexService } from '../crypto/blind-index.service';
@@ -36,7 +37,11 @@ export class AuthService {
           where: { emailBlindIndex: emailIndex },
           include: {
             adminKeyMaterial: true,
-            journalist: { include: { memberships: { include: { editorial: true } } } },
+            journalist: {
+              include: {
+                memberships: { where: { deletedAt: null }, include: { editorial: true } },
+              },
+            },
           },
         })
       : null;
@@ -48,6 +53,16 @@ export class AuthService {
     const passwordValid = await argon2.verify(user.passwordHash, password);
     if (!passwordValid) {
       throw new UnauthorizedException('Invalid email or password');
+    }
+
+    // Soft-deleted account: restore it on a login within the grace window, else
+    // behave as if it no longer exists (the purge job will remove it for good).
+    if (user.deletedAt) {
+      if (!isWithinGraceWindow(user.deletedAt)) {
+        throw new UnauthorizedException('Invalid email or password');
+      }
+      await this.prisma.user.update({ where: { id: user.id }, data: { deletedAt: null } });
+      user.deletedAt = null;
     }
 
     let unlockedDataKey: Buffer | undefined;

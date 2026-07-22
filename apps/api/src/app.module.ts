@@ -1,10 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { AdminsModule } from './admins/admins.module';
 import { AuthModule } from './auth/auth.module';
+import { BackupModule } from './backup/backup.module';
+import { MaintenanceModule } from './maintenance/maintenance.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { CardTemplateModule } from './card-template/card-template.module';
@@ -27,6 +30,7 @@ import { VerifyModule } from './verify/verify.module';
     }),
     // Global rate limiting: 100 requests per minute per IP.
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+    ScheduleModule.forRoot(),
     PrismaModule,
     SettingsModule,
     MailModule,
@@ -40,6 +44,8 @@ import { VerifyModule } from './verify/verify.module';
     EditorialsModule,
     AdminsModule,
     PositionsModule,
+    BackupModule,
+    MaintenanceModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

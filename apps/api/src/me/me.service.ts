@@ -308,13 +308,20 @@ export class MeService {
   }
 
   /** Deletes the journalist's own account — allowed only when in no editorial. */
+  /** Soft-deletes the journalist's own account. It is hidden immediately and
+   *  purged after the grace window, but a login within that window restores it
+   *  in full. Encrypted data and files are kept so restore is lossless. */
   async deleteOwnAccount(userId: number): Promise<{ success: boolean }> {
     const journalist = await this.prisma.journalist.findUnique({ where: { userId } });
     if (!journalist) throw new NotFoundException('No journalist profile for this user');
     await this.assertNotManaged(journalist.id);
-    await this.files.removeOwner('user', String(userId));
     this.unlockSessions.revokeUser(userId);
-    await this.prisma.user.delete({ where: { id: userId } });
+    // Bump tokenVersion so existing access/refresh tokens on every device stop
+    // working; the next successful login (within the window) clears deletedAt.
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { deletedAt: new Date(), tokenVersion: { increment: 1 } },
+    });
     return { success: true };
   }
 

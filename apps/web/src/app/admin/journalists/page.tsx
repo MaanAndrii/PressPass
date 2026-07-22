@@ -42,6 +42,14 @@ export default function AdminJournalistsPage() {
   const [attachId, setAttachId] = useState('');
   const [attachEditorialId, setAttachEditorialId] = useState('');
   const [attachMsg, setAttachMsg] = useState<string | null>(null);
+  // Soft-delete: quick-undo banner, and the Superadmin "trash" view.
+  const [undo, setUndo] = useState<{
+    id: number;
+    name: string;
+    kind: 'membership' | 'account';
+  } | null>(null);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [deleted, setDeleted] = useState<AdminJournalist[]>([]);
 
   const reload = useCallback(async () => {
     try {
@@ -90,6 +98,45 @@ export default function AdminJournalistsPage() {
     }
   }
 
+  const loadTrash = useCallback(async () => {
+    try {
+      setDeleted(await api<AdminJournalist[]>('/admin/journalists/deleted'));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не вдалося завантажити кошик');
+    }
+  }, []);
+
+  async function toggleTrash() {
+    const next = !trashOpen;
+    setTrashOpen(next);
+    if (next) await loadTrash();
+  }
+
+  async function handleUndo() {
+    if (!undo) return;
+    const path =
+      undo.kind === 'membership'
+        ? `/admin/journalists/${undo.id}/membership/restore`
+        : `/admin/journalists/${undo.id}/restore`;
+    try {
+      await api(path, { method: 'POST' });
+      setUndo(null);
+      await reload();
+      if (trashOpen) await loadTrash();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не вдалося відмінити');
+    }
+  }
+
+  async function handleRestoreFromTrash(id: number) {
+    try {
+      await api(`/admin/journalists/${id}/restore`, { method: 'POST' });
+      await Promise.all([reload(), loadTrash()]);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не вдалося відновити');
+    }
+  }
+
   const filtered = useMemo(
     () => (query.trim() ? journalists.filter((j) => matches(j, query)) : journalists),
     [journalists, query],
@@ -117,7 +164,60 @@ export default function AdminJournalistsPage() {
           className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
         />
         <Button onClick={openCreate}>Створити</Button>
+        {isSuperAdmin && (
+          <Button variant="secondary" onClick={() => void toggleTrash()}>
+            {trashOpen ? 'Сховати кошик' : 'Кошик'}
+          </Button>
+        )}
       </div>
+
+      {undo && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
+          <span>
+            {undo.kind === 'membership' ? 'Прибрано з редакції:' : 'Видалено:'}{' '}
+            <strong>{undo.name}</strong>. Відновлення доступне 7 днів.
+          </span>
+          <Button variant="secondary" onClick={() => void handleUndo()}>
+            Відмінити
+          </Button>
+          <button className="text-amber-700 hover:underline" onClick={() => setUndo(null)}>
+            Закрити
+          </button>
+        </div>
+      )}
+
+      {trashOpen && (
+        <div className="overflow-x-auto rounded-xl bg-white shadow ring-1 ring-amber-200">
+          <div className="border-b border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">
+            Кошик — видалені журналісти (відновлення можливе протягом 7 днів)
+          </div>
+          <table className="w-full text-left text-sm">
+            <tbody>
+              {deleted.map((j) => (
+                <tr key={j.id} className="border-b border-slate-100">
+                  <td className="px-4 py-2">
+                    {j.fullName || <span className="italic text-slate-400">(без імені)</span>}
+                  </td>
+                  <td className="px-4 py-2 font-mono text-xs text-slate-500">{j.publicId}</td>
+                  <td className="px-4 py-2">{j.email}</td>
+                  <td className="px-4 py-2 text-right">
+                    <Button variant="secondary" onClick={() => void handleRestoreFromTrash(j.id)}>
+                      Відновити
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+              {deleted.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-6 text-center text-slate-400">
+                    Кошик порожній
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Додати наявного журналіста за його унікальним ID */}
       <div className="flex flex-wrap items-end gap-2 rounded-xl bg-white p-3 shadow">
@@ -238,6 +338,9 @@ export default function AdminJournalistsPage() {
         onClose={() => setSelected(null)}
         onEdit={openEdit}
         onChanged={() => void reload()}
+        onRemoved={(j, kind) =>
+          setUndo({ id: j.id, name: j.fullName || j.email || j.publicId, kind })
+        }
       />
 
       <JournalistFormModal
