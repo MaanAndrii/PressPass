@@ -98,13 +98,17 @@ export default function AdminJournalistsPage() {
     }
   }
 
+  // Superadmin sees fully deleted accounts; an editorial admin sees journalists
+  // they recently removed from their own media.
+  const trashPath = isSuperAdmin ? '/admin/journalists/deleted' : '/admin/journalists/detached';
+
   const loadTrash = useCallback(async () => {
     try {
-      setDeleted(await api<AdminJournalist[]>('/admin/journalists/deleted'));
+      setDeleted(await api<AdminJournalist[]>(trashPath));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не вдалося завантажити кошик');
     }
-  }, []);
+  }, [trashPath]);
 
   async function toggleTrash() {
     const next = !trashOpen;
@@ -129,8 +133,11 @@ export default function AdminJournalistsPage() {
   }
 
   async function handleRestoreFromTrash(id: number) {
+    const path = isSuperAdmin
+      ? `/admin/journalists/${id}/restore`
+      : `/admin/journalists/${id}/membership/restore`;
     try {
-      await api(`/admin/journalists/${id}/restore`, { method: 'POST' });
+      await api(path, { method: 'POST' });
       await Promise.all([reload(), loadTrash()]);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не вдалося відновити');
@@ -164,11 +171,15 @@ export default function AdminJournalistsPage() {
           className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
         />
         <Button onClick={openCreate}>Створити</Button>
-        {isSuperAdmin && (
-          <Button variant="secondary" onClick={() => void toggleTrash()}>
-            {trashOpen ? 'Сховати кошик' : 'Кошик'}
-          </Button>
-        )}
+        <Button variant="secondary" onClick={() => void toggleTrash()}>
+          {trashOpen
+            ? isSuperAdmin
+              ? 'Сховати кошик'
+              : 'Сховати прибраних'
+            : isSuperAdmin
+              ? 'Кошик'
+              : 'Прибрані'}
+        </Button>
       </div>
 
       {undo && (
@@ -189,7 +200,9 @@ export default function AdminJournalistsPage() {
       {trashOpen && (
         <div className="overflow-x-auto rounded-xl bg-white shadow ring-1 ring-amber-200">
           <div className="border-b border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">
-            Кошик — видалені журналісти (відновлення можливе протягом 7 днів)
+            {isSuperAdmin
+              ? 'Кошик — видалені журналісти (відновлення можливе протягом 7 днів)'
+              : 'Прибрані з вашої редакції (відновлення можливе протягом 7 днів)'}
           </div>
           <table className="w-full text-left text-sm">
             <tbody>

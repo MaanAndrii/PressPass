@@ -52,6 +52,17 @@ export class JournalistsController {
     return this.journalistsService.findDeleted(user, unlock);
   }
 
+  @Get('detached')
+  @ApiOperation({
+    summary: 'List journalists recently removed from the editorial admin’s media (undoable)',
+  })
+  findDetached(
+    @CurrentUser() user: JwtPayload,
+    @Headers('x-unlock-token') unlock?: string,
+  ): Promise<AdminJournalist[]> {
+    return this.journalistsService.findDetached(user, unlock);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create a journalist together with a login account' })
   create(
