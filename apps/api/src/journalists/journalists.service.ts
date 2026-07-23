@@ -498,6 +498,28 @@ export class JournalistsService {
     );
   }
 
+  /** Lists journalists the editorial admin recently removed from THEIR media
+   *  (soft-removed memberships within the window), so a detach can be undone
+   *  after the transient banner is gone. */
+  async findDetached(actor: JwtPayload, unlock?: string): Promise<AdminJournalist[]> {
+    if (actor.role !== 'EDITORIAL_ADMIN' || !actor.editorialId) return [];
+    const removed = await this.prisma.editorialMembership.findMany({
+      where: { editorialId: actor.editorialId, deletedAt: { not: null } },
+      select: { journalistId: true },
+    });
+    if (removed.length === 0) return [];
+    const journalists = await this.prisma.journalist.findMany({
+      where: { id: { in: removed.map((m) => m.journalistId) }, user: { deletedAt: null } },
+      include: ADMIN_INCLUDE,
+      orderBy: { id: 'asc' },
+    });
+    return Promise.all(
+      journalists.map((journalist) =>
+        this.toAdminDto(journalist, actor, unlock).catch(() => this.redactedDto(journalist)),
+      ),
+    );
+  }
+
   /** Encrypts an administrator-uploaded photo with the profile DEK. */
   async setPhoto(
     id: number,

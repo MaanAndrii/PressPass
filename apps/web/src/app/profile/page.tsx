@@ -346,15 +346,33 @@ export default function ProfilePage() {
               </Button>
             )}
           </form>
-          {!managed && (
-            <button
-              type="button"
-              onClick={() => void handleDeleteAccount()}
-              className="mt-4 text-sm text-red-600 hover:underline"
-            >
-              Видалити акаунт і анкету
-            </button>
-          )}
+
+          <section className="mt-6 rounded-2xl border border-red-200 bg-white p-5 shadow">
+            <h2 className="text-sm font-semibold text-red-700">Видалення акаунта</h2>
+            {managed ? (
+              <p className="mt-2 text-sm text-slate-500">
+                Вашу анкету керує {profile.memberships.length === 1 ? 'редакція' : 'редакції'}{' '}
+                <strong>{profile.memberships.map((m) => m.name).join(', ')}</strong>. Щоб видалити
+                акаунт, спершу вийдіть з усіх редакцій — зверніться до адміністратора вашого медіа.
+              </p>
+            ) : (
+              <>
+                <p className="mt-2 text-sm text-slate-500">
+                  Акаунт і анкету буде приховано. Якщо ви знову увійдете протягом 7 днів — усе
+                  відновиться. Після 7 днів дані стираються остаточно.
+                </p>
+                <Button
+                  type="button"
+                  variant="danger"
+                  disabled={busy}
+                  onClick={() => void handleDeleteAccount()}
+                  className="mt-3"
+                >
+                  Видалити акаунт і анкету
+                </Button>
+              </>
+            )}
+          </section>
         </>
       )}
     </main>

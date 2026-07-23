@@ -126,7 +126,9 @@ export class MeService {
       where: { id: userId },
       include: {
         journalist: {
-          include: { memberships: { include: { editorial: true } } },
+          include: {
+            memberships: { where: { deletedAt: null }, include: { editorial: true } },
+          },
         },
       },
     });
@@ -300,7 +302,11 @@ export class MeService {
    * editorial. Once a member, the editorial owns the credential data.
    */
   private async assertNotManaged(journalistId: number): Promise<void> {
-    const memberships = await this.prisma.editorialMembership.count({ where: { journalistId } });
+    // A membership removed by the editorial (soft-deleted) no longer manages the
+    // journalist — they immediately regain control of their own questionnaire.
+    const memberships = await this.prisma.editorialMembership.count({
+      where: { journalistId, deletedAt: null },
+    });
     if (memberships > 0)
       throw new ForbiddenException(
         'Вашу анкету керує редакція — зміни вносить адміністратор медіа',
