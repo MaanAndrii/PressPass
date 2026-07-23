@@ -195,11 +195,43 @@ export function JournalistDetailModal({
               <Badge tone="warning">Анкета не заповнена</Badge>
             ))}
           {j.nszhuMember && <Badge tone="info">Член НСЖУ</Badge>}
-          {j.memberships.map((m) => (
-            <Badge key={m.id} tone="neutral">
-              {m.name}
-            </Badge>
-          ))}
+          {j.memberships.map((m) =>
+            isSuperAdmin ? (
+              <span
+                key={m.id}
+                className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
+              >
+                {m.name}
+                <button
+                  type="button"
+                  title={`Прибрати з редакції «${m.name}»`}
+                  disabled={busy}
+                  className="text-slate-400 hover:text-red-600"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Прибрати журналіста з редакції «${m.name}»? Спершу мають бути скасовані (заблоковані) активні посвідчення цієї редакції. Відновити — повторним додаванням за ID.`,
+                      )
+                    ) {
+                      void action(
+                        () =>
+                          api(`/admin/journalists/${j.id}/membership?editorialId=${m.id}`, {
+                            method: 'DELETE',
+                          }),
+                        'Не вдалося прибрати з редакції',
+                      );
+                    }
+                  }}
+                >
+                  ×
+                </button>
+              </span>
+            ) : (
+              <Badge key={m.id} tone="neutral">
+                {m.name}
+              </Badge>
+            ),
+          )}
         </div>
 
         {/* Посвідчення */}
