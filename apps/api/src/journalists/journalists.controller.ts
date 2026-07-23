@@ -9,6 +9,7 @@ import {
   ParseIntPipe,
   Post,
   Put,
+  Query,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -95,13 +96,17 @@ export class JournalistsController {
   }
 
   @Delete(':id/membership')
-  @ApiOperation({ summary: "Remove a journalist from the editorial admin's media" })
+  @ApiOperation({
+    summary:
+      'Remove a journalist from a media (own for editorial admin; editorialId for Superadmin)',
+  })
   detach(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: JwtPayload,
+    @Query('editorialId', new ParseIntPipe({ optional: true })) editorialId?: number,
     @Headers('x-unlock-token') unlock?: string,
   ): Promise<AdminJournalist> {
-    return this.journalistsService.detach(id, user, unlock);
+    return this.journalistsService.detach(id, user, unlock, editorialId);
   }
 
   @Post(':id/membership/restore')

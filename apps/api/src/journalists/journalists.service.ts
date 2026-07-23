@@ -337,24 +337,37 @@ export class JournalistsService {
     }
   }
 
-  /** Removes a journalist from the editorial admin's own media (not the account). */
-  /** Editorial admin soft-removes a journalist from their OWN media. The
+  /** Soft-removes a journalist from a media (not the account). An editorial admin
+   *  acts on their OWN media; a Superadmin passes the target editorial. The
    *  credentials must be cancelled first (a credential must not outlive the
-   *  membership), and the removal is undoable within the grace window via
-   *  {@link restoreMembership}. The editorial key grant is kept meanwhile so an
-   *  undo is lossless; the purge revokes it when the window elapses. */
-  async detach(id: number, actor: JwtPayload, unlock?: string): Promise<AdminJournalist> {
-    if (actor.role !== 'EDITORIAL_ADMIN' || !actor.editorialId) {
-      throw new ForbiddenException('Прибрати з редакції може лише редакційний адміністратор');
+   *  membership), and the removal is undoable within the grace window — an
+   *  editorial admin via {@link restoreMembership}, a Superadmin by re-adding the
+   *  journalist by public id (which reactivates the soft-removed membership).
+   *  The editorial key grant is kept meanwhile so an undo is lossless; the purge
+   *  revokes it when the window elapses. */
+  async detach(
+    id: number,
+    actor: JwtPayload,
+    unlock?: string,
+    targetEditorialId?: number,
+  ): Promise<AdminJournalist> {
+    const editorialId =
+      actor.role === 'EDITORIAL_ADMIN' ? (actor.editorialId ?? undefined) : targetEditorialId;
+    if (!editorialId) {
+      throw new BadRequestException(
+        actor.role === 'EDITORIAL_ADMIN'
+          ? 'Прибрати з редакції може лише редакційний адміністратор'
+          : 'Виберіть редакцію, з якої прибрати журналіста',
+      );
     }
     const membership = await this.prisma.editorialMembership.findUnique({
-      where: { editorialId_journalistId: { editorialId: actor.editorialId, journalistId: id } },
+      where: { editorialId_journalistId: { editorialId, journalistId: id } },
     });
     if (!membership || membership.deletedAt) {
-      throw new NotFoundException('Журналіст не є членом вашої редакції');
+      throw new NotFoundException('Журналіст не є членом цієї редакції');
     }
     const activeCards = await this.prisma.card.count({
-      where: { journalistId: id, editorialId: actor.editorialId, status: 'ACTIVE' },
+      where: { journalistId: id, editorialId, status: 'ACTIVE' },
     });
     if (activeCards > 0) {
       throw new ConflictException(
@@ -365,9 +378,7 @@ export class JournalistsService {
       where: { id: membership.id },
       data: { deletedAt: new Date() },
     });
-    await this.prisma.joinRequest.deleteMany({
-      where: { journalistId: id, editorialId: actor.editorialId },
-    });
+    await this.prisma.joinRequest.deleteMany({ where: { journalistId: id, editorialId } });
     // Access is gone from the list now — return a redacted row.
     return this.safeAdminDto(await this.loadForAdmin(id), actor, unlock);
   }
